@@ -2,7 +2,7 @@
 #
 # Antes del primer arranque, copia .env.example como .env.
 #
-#   docker compose up --build   -> construye las imágenes y arranca los servicios
+#   docker compose up --build   -> construye las imágenes, aplica las migraciones y arranca los servicios
 #   docker compose down         -> detiene los servicios (los datos de PostgreSQL se conservan)
 #
 # Los puertos se publican solo en 127.0.0.1: los servicios son accesibles desde
@@ -23,18 +23,28 @@ services:
     volumes:
       # Volumen persistente: los datos sobreviven a "docker compose down".
       - postgres-data:/var/lib/postgresql/data
-      # Scripts SQL de inicialización (esquema). PostgreSQL solo los ejecuta
-      # cuando el volumen postgres-data está vacío, es decir, en el primer arranque.
-      - ./database/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      # Comprueba por TCP que PostgreSQL acepta conexiones. Durante la
-      # inicialización solo se escucha por socket local, así que el backend
-      # no arranca hasta que el esquema se ha creado.
+      # Comprueba por TCP que PostgreSQL acepta conexiones.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
+
+  # Aplica las migraciones pendientes de database/migrations/ y termina.
+  # Se ejecuta en cada "docker compose up"; si no hay nada pendiente, no hace nada.
+  # También se usa para gestionar migraciones a mano, por ejemplo:
+  #   docker compose run --rm migrate version
+  migrate:
+    image: migrate/migrate:v4.20.1
+    entrypoint: ["migrate", "-path=/migrations", "-database=${DATABASE_URL:?Define DATABASE_URL en .env}"]
+    command: ["up"]
+    working_dir: /migrations
+    volumes:
+      - ./database/migrations:/migrations
+    depends_on:
+      db:
+        condition: service_healthy
 
   backend:
     build: .
@@ -49,8 +59,11 @@ services:
       - .:/app
     depends_on:
       db:
-        # El backend no arranca hasta que el healthcheck de PostgreSQL es correcto.
+        # El backend no arranca hasta que el healthcheck de PostgreSQL es correcto...
         condition: service_healthy
+      migrate:
+        # ...y las migraciones se han aplicado sin errores.
+        condition: service_completed_successfully
 
   frontend:
     build: ../securityBank_client/securityBank_client

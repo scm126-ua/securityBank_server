@@ -1,9 +1,10 @@
-// Package models contiene los modelos GORM de las tablas definidas en
-// database/init/001_schema.sql.
+// Package models contiene los modelos GORM de las tablas definidas en las
+// migraciones de database/migrations/.
 //
-// El esquema lo crea el script SQL, no GORM: los modelos solo describen cómo
-// leer y escribir esas tablas y no se usa AutoMigrate. Si cambias una tabla
-// en SQL, actualiza también su modelo (y ejecuta los tests de este paquete).
+// El esquema lo crean las migraciones SQL, no GORM: los modelos solo describen
+// cómo leer y escribir esas tablas y no se usa AutoMigrate. Si una migración
+// cambia una tabla, actualiza también su modelo (y ejecuta los tests de este
+// paquete).
 //
 // Convenciones:
 //   - Cada campo indica su columna con la etiqueta gorm:"column:...".

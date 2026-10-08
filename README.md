@@ -26,9 +26,9 @@ SecurityBank/
     │   ├── config/                   # Lectura de variables de entorno
     │   ├── database/                 # Conexión GORM, ping y comprobación de tablas
     │   ├── handlers/                 # Manejadores HTTP (endpoints de salud)
-    │   └── models/                   # Modelos GORM de las seis tablas (+ tests)
-    ├── database/init/001_schema.sql  # Esquema SQL: fuente de verdad de la base de datos
-    ├── compose.yaml                  # Servicios frontend, backend y db
+    │   └── models/                   # Modelos GORM de las seis tablas
+    ├── database/migrations/          # Migraciones SQL: fuente de verdad de la base de datos
+    ├── compose.yaml                  # Servicios frontend, backend, db y migrate
     ├── Dockerfile                    # Imagen de desarrollo del backend (Go + Air)
     ├── .air.toml                     # Recarga automática del backend
     └── .env.example                  # Plantilla de variables de entorno
@@ -72,7 +72,10 @@ docker compose ps                # estado de los contenedores
 | PostgreSQL | localhost:5432                      |
 
 Al guardar cambios, Vite recarga el frontend y Air recompila el backend automáticamente.
-El backend no arranca hasta que PostgreSQL está preparado (healthcheck).
+
+Orden de arranque: PostgreSQL → `migrate` (aplica las migraciones pendientes y termina) →
+backend. Si una migración falla, el backend no arranca. En `docker compose ps -a`, el
+servicio `migrate` aparece como `Exited (0)`: es lo normal.
 
 Si cambias las dependencias del frontend (`package.json`), reinstálalas en el contenedor:
 
@@ -94,6 +97,7 @@ docker compose down -v   # para, elimina los contenedores y BORRA los datos de P
 docker compose logs -f              # todos los servicios, en tiempo real (Ctrl+C para salir)
 docker compose logs -f backend      # solo el backend
 docker compose logs --tail 50 db    # últimas 50 líneas de PostgreSQL
+docker compose logs migrate         # migraciones aplicadas (o "no change")
 ```
 
 Al arrancar, el backend indica si ha conectado con PostgreSQL y si existen todas las tablas:
@@ -123,50 +127,87 @@ curl http://localhost:8080/api/health/db        # Git Bash
 
 ## Base de datos
 
-### Esquema y modelos GORM
+### Esquema, migraciones y modelos GORM
 
-- [database/init/001_schema.sql](database/init/001_schema.sql) define las seis tablas: `users`,
-  `accounts`, `account_users`, `transactions`, `documents` y `document_access`. Es la fuente
-  de verdad: el backend **no** usa `AutoMigrate` ni modifica el esquema.
+- El esquema se gestiona con **migraciones SQL** en [database/migrations/](database/migrations/),
+  que aplica [golang-migrate](https://github.com/golang-migrate/migrate) (servicio `migrate`
+  de `compose.yaml`). Son la fuente de verdad: el backend **no** usa `AutoMigrate` ni
+  modifica el esquema.
+- Cada migración son dos ficheros con el mismo número:
+  - `NNNNNN_descripcion.up.sql`: aplica el cambio.
+  - `NNNNNN_descripcion.down.sql`: lo deshace.
+
+  La primera, `000001_initial_schema`, crea las seis tablas: `users`, `accounts`,
+  `account_users`, `transactions`, `documents` y `document_access`.
+- golang-migrate guarda en la tabla `schema_migrations` la versión aplicada en cada base de
+  datos. **No la modifiques a mano.**
+- Las migraciones pendientes se aplican solas en cada `docker compose up`.
 - [internal/models/](internal/models/) contiene un modelo GORM por tabla. Las columnas que
   admiten NULL son punteros (`*string`, `*int64`) y el dinero usa `decimal.Decimal`, nunca `float`.
-- Los tests comprueban que los modelos coinciden con el esquema real (tablas, columnas, tipos,
-  NULL, claves primarias y foráneas). Solo leen la base de datos:
 
-  ```sh
-  docker compose exec backend go test -count=1 ./...
-  ```
+Los comandos de esta sección están probados en PowerShell. En Git Bash, si un comando
+contiene rutas como `/tmp/...`, antepón `MSYS_NO_PATHCONV=1` para que no las convierta.
 
 ### Inicializar el esquema en una instalación nueva
 
-Con el volumen vacío (primer `docker compose up`), PostgreSQL ejecuta automáticamente los
-scripts de `database/init/` (montado en `/docker-entrypoint-initdb.d/`) en orden alfabético.
-Para comprobarlo:
+No hay que hacer nada especial: el primer `docker compose up --build` crea la base de datos
+vacía y `migrate` aplica todas las migraciones. Para comprobarlo:
 
 ```sh
-docker compose logs db          # debe aparecer: running /docker-entrypoint-initdb.d/001_schema.sql
+docker compose logs migrate               # debe aparecer: 1/u initial_schema
+docker compose run --rm migrate version   # versión actual del esquema
 curl.exe http://localhost:8080/api/health/db
 ```
 
-Si el volumen ya existe, los scripts **no se vuelven a ejecutar**. Para empezar de cero
-(se pierden todos los datos): `docker compose down -v` y `docker compose up --build`.
+Para empezar de cero (se pierden todos los datos): `docker compose down -v` y
+`docker compose up --build`.
 
-### Aplicar cambios SQL sin eliminar datos
+### Base de datos creada antes de las migraciones
 
-1. **Haz una copia de seguridad** (se guarda fuera del repositorio porque contiene datos):
+Si tu volumen se creó con el sistema anterior (`database/init/001_schema.sql`), ya tiene las
+tablas pero no la tabla `schema_migrations`, y `migrate` fallaría al intentar crearlas otra vez.
+
+- **Sin datos que conservar:** `docker compose down -v` y `docker compose up --build`.
+- **Con datos que conservar:** marca la migración 1 como aplicada (no ejecuta nada) y arranca:
+
+  ```sh
+  docker compose run --rm migrate force 1
+  docker compose up -d --build
+  ```
+
+  Si ya hiciste `docker compose up` y `migrate` falló con `relation "users" already exists`,
+  ejecuta esos mismos dos comandos: no se ha perdido nada.
+
+### Cambiar el esquema (flujo de trabajo)
+
+1. **Si tienes datos que te importen, haz una copia de seguridad.** Se guarda fuera del
+   repositorio porque contiene datos:
 
    ```sh
    docker compose exec db pg_dump -U securitybank -d securitybank -Fc -f /tmp/securitybank.dump
    docker compose cp db:/tmp/securitybank.dump ../securitybank.dump
    ```
 
-2. **Crea un script nuevo** en `database/init/` con el siguiente número, por ejemplo
-   `002_add_phone_to_users.sql`. No modifiques `001_schema.sql`: tus compañeros ya lo han
-   aplicado. Así, las instalaciones nuevas ejecutan 001 y 002 automáticamente.
+2. **Crea la migración.** Esto genera la pareja `000002_add_phone_to_users.up.sql` /
+   `.down.sql` con el número siguiente (también puedes crear los dos ficheros a mano):
+
+   ```sh
+   docker compose run --rm migrate create -ext sql -dir . -seq add_phone_to_users
+   ```
+
+3. **Escribe el SQL** del cambio (`up`) y de cómo deshacerlo (`down`):
 
    ```sql
+   -- 000002_add_phone_to_users.up.sql
    BEGIN;
    ALTER TABLE users ADD COLUMN phone VARCHAR(20);
+   COMMIT;
+   ```
+
+   ```sql
+   -- 000002_add_phone_to_users.down.sql
+   BEGIN;
+   ALTER TABLE users DROP COLUMN phone;
    COMMIT;
    ```
 
@@ -176,30 +217,61 @@ Si el volumen ya existe, los scripts **no se vuelven a ejecutar**. Para empezar 
    - Para añadir una columna `NOT NULL` a una tabla con datos: añádela admitiendo NULL,
      rellénala con `UPDATE` y después `ALTER COLUMN ... SET NOT NULL`.
 
-3. **Aplica el script** a tu base de datos existente (PowerShell):
+4. **Aplícala:**
 
    ```sh
-   docker compose exec db psql -v ON_ERROR_STOP=1 -U securitybank -d securitybank -f /docker-entrypoint-initdb.d/002_add_phone_to_users.sql
+   docker compose run --rm migrate up
    ```
 
-   En Git Bash, antepón `MSYS_NO_PATHCONV=1` para que no convierta la ruta. También puedes
-   abrir el script en DBeaver y ejecutarlo (Alt+X).
+   Antes de subirla, comprueba que el `down` también funciona:
+   `docker compose run --rm migrate down 1` y otra vez `up`.
 
-4. **Actualiza el modelo GORM** correspondiente y ejecuta los tests
-   (`docker compose exec backend go test -count=1 ./...`).
+5. **Actualiza el modelo GORM** correspondiente. Air recompila el backend: revisa sus logs y
+   `GET /api/health/db`.
 
-5. **Haz commit del script y del modelo juntos.** Cada compañero aplica el nuevo script con
-   el paso 3.
+6. **Haz commit de la migración y del modelo juntos.** Tus compañeros solo tienen que hacer
+   `git pull` y `docker compose up -d`: la migración se aplica sola.
 
-Si algo sale mal, restaura la copia de seguridad:
+### Comandos de migraciones
+
+| Comando                                        | Qué hace                                             |
+|------------------------------------------------|------------------------------------------------------|
+| `docker compose run --rm migrate version`      | Muestra la versión actual (y si está `dirty`)        |
+| `docker compose run --rm migrate up`           | Aplica todas las migraciones pendientes              |
+| `docker compose run --rm migrate down 1`       | Deshace la última migración (**puede borrar datos**) |
+| `docker compose run --rm migrate force N`      | Marca la versión N como aplicada sin ejecutar nada   |
+| `docker compose run --rm migrate create -ext sql -dir . -seq nombre` | Crea una migración nueva    |
+
+### Si una migración falla
+
+`migrate` muestra el error, la base de datos queda marcada como **dirty** en esa versión y
+el backend no arranca. Puede aparecer también una línea con
+`current transaction is aborted ... pg_advisory_unlock`: es una consecuencia del error y no
+tiene importancia.
+
+Gracias a `BEGIN; ... COMMIT;` no se ha aplicado nada. Para recuperarte, si falló la
+versión N:
+
+```sh
+docker compose run --rm migrate force N-1   # por ejemplo, si falló la 2: force 1
+# corrige el fichero .up.sql
+docker compose run --rm migrate up
+```
+
+### Reglas
+
+- **Todo cambio del esquema es una migración que se sube a Git.** No modifiques tablas desde
+  el editor visual de DBeaver: ese cambio solo existiría en tu ordenador.
+- **No edites una migración que ya está en Git**, porque tus compañeros ya la han aplicado.
+  Si hay que corregir algo, crea una migración nueva.
+- **No uses `AutoMigrate`** ni toques la tabla `schema_migrations` a mano.
+
+### Restaurar una copia de seguridad
 
 ```sh
 docker compose cp ../securitybank.dump db:/tmp/securitybank.dump
 docker compose exec db pg_restore -U securitybank -d securitybank --clean --if-exists /tmp/securitybank.dump
 ```
-
-Cuando los cambios de esquema sean frecuentes, conviene pasar a una herramienta de
-migraciones (por ejemplo golang-migrate o goose), que registra qué scripts se han aplicado.
 
 ## Conectar DBeaver
 
@@ -224,7 +296,8 @@ Si la conexión falla con un error de contraseña, comprueba que no tienes otro 
 
 - **Tablas:** en el navegador de bases de datos, despliega
   `securitybank → Bases de datos → securitybank → Esquemas → public → Tablas`.
-  Pulsa F5 sobre la conexión si acabas de crear el esquema.
+  Pulsa F5 sobre la conexión si acabas de crear el esquema. Además de las seis tablas verás
+  `schema_migrations`: es la tabla de control de golang-migrate, no la modifiques.
 - **Detalle de una tabla:** haz doble clic sobre ella. En la pestaña **Propiedades** verás
   *Columnas* (con los comentarios del esquema), *Restricciones* (primary keys, UNIQUE y CHECK),
   *Claves foráneas*, *Referencias* (qué tablas apuntan a esta) e *Índices*. La pestaña

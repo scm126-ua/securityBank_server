@@ -27,14 +27,14 @@ func main() {
 	}
 	log.Println("conexión con PostgreSQL establecida")
 
-	// Avisa si falta alguna tabla (por ejemplo, si el esquema no se ha aplicado).
-	// No se crean tablas: el esquema solo se gestiona con los scripts SQL.
+	// Avisa si falta alguna tabla (por ejemplo, si no se han aplicado las migraciones).
+	// No se crean tablas: el esquema solo se gestiona con las migraciones SQL.
 	missing, err := database.MissingTables(context.Background(), db)
 	switch {
 	case err != nil:
 		log.Printf("AVISO: no se pudo comprobar el esquema: %v", err)
 	case len(missing) > 0:
-		log.Printf("AVISO: faltan tablas en la base de datos: %v. Aplica database/init/001_schema.sql (ver README).", missing)
+		log.Printf("AVISO: faltan tablas en la base de datos: %v. Aplica las migraciones: docker compose run --rm migrate up (ver README).", missing)
 	default:
 		log.Println("esquema de la base de datos comprobado: todas las tablas existen")
 	}

@@ -1,15 +1,16 @@
 -- =============================================================================
--- SecurityBank - Esquema de la base de datos (PostgreSQL 17)
+-- SecurityBank - Migración 000001: esquema inicial (PostgreSQL 17)
 -- =============================================================================
 --
--- Este fichero es la fuente de verdad del esquema: el backend NO usa
--- AutoMigrate de GORM.
+-- Las migraciones de database/migrations/ son la fuente de verdad del esquema:
+-- el backend NO usa AutoMigrate de GORM. Las aplica golang-migrate (servicio
+-- "migrate" de compose.yaml) en cada "docker compose up". Ver README.md.
 --
--- Docker lo ejecuta automáticamente (/docker-entrypoint-initdb.d/) solo cuando
--- el volumen de PostgreSQL está vacío. Para aplicarlo a mano, ver README.md.
+-- No modifiques esta migración: cualquier cambio del esquema va en una
+-- migración nueva (000002_..., 000003_...).
 --
--- Todo el script se ejecuta en una única transacción: si algo falla (por
--- ejemplo, porque una tabla ya existe) no se aplica ningún cambio.
+-- Todo el script se ejecuta en una única transacción: si algo falla no se
+-- aplica ningún cambio.
 --
 -- Claves foráneas: se usa el comportamiento por defecto (NO ACTION), es decir,
 -- no se puede borrar un usuario o una cuenta que tenga datos relacionados.
