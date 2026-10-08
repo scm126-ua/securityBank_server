@@ -1,0 +1,16 @@
+# Variables de entorno locales (pueden contener contraseñas): nunca se suben a Git.
+.env
+.env.*
+!.env.example
+
+# Ficheros generados al compilar
+tmp/
+*.exe
+*.test
+*.out
+
+# Editores y sistema operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

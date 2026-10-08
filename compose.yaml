@@ -1,0 +1,64 @@
+# Entorno de desarrollo local de SecurityBank (frontend + backend + base de datos).
+#
+# Antes del primer arranque, copia .env.example como .env.
+#
+#   docker compose up --build   -> construye las imágenes y arranca los servicios
+#   docker compose down         -> detiene los servicios (los datos de PostgreSQL se conservan)
+#
+# Los puertos se publican solo en 127.0.0.1: los servicios son accesibles desde
+# este ordenador (localhost), pero no desde otros equipos de la red.
+
+name: securitybank
+
+services:
+  db:
+    image: postgres:17.11-alpine3.24
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Define POSTGRES_DB en .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Define POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+    ports:
+      # Puerto del host para DBeaver. Dentro de Docker, el backend usa siempre db:5432.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      # Volumen persistente: los datos sobreviven a "docker compose down".
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # Comprueba por TCP que PostgreSQL acepta conexiones.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build: .
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL en .env}
+      BACKEND_PORT: ${BACKEND_PORT:-8080}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8080}:${BACKEND_PORT:-8080}"
+    volumes:
+      # El código del host se monta en el contenedor y Air detecta los cambios.
+      - .:/app
+    depends_on:
+      db:
+        # El backend no arranca hasta que el healthcheck de PostgreSQL es correcto.
+        condition: service_healthy
+
+  frontend:
+    build: ../securityBank_client/securityBank_client
+    environment:
+      # Activa el sondeo de ficheros en Vite (necesario en Docker sobre Windows).
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "127.0.0.1:5173:5173"
+    volumes:
+      # El código del host se monta en el contenedor y Vite recarga en caliente.
+      - ../securityBank_client/securityBank_client:/app
+      # node_modules se queda dentro del contenedor (dependencias compiladas para Linux).
+      - /app/node_modules
+
+volumes:
+  postgres-data:

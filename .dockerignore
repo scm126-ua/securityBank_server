@@ -1,0 +1,11 @@
+# Ficheros que no se copian a la imagen de Docker.
+.git
+.gitignore
+.env
+.env.*
+tmp/
+*.png
+compose.yaml
+Dockerfile
+.dockerignore
+README.md

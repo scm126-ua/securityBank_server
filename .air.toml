@@ -1,0 +1,22 @@
+# Configuración de Air: recompila y reinicia el backend al guardar un fichero .go.
+# Documentación: https://github.com/air-verse/air
+
+root = "."
+# Los ficheros temporales se quedan dentro del contenedor, no en el repositorio.
+tmp_dir = "/tmp/air"
+
+[build]
+  cmd = "go build -o /tmp/air/api ./cmd/api"
+  entrypoint = ["/tmp/air/api"]
+  include_ext = ["go"]
+  exclude_dir = ["tmp", "vendor"]
+  exclude_regex = ["_test\\.go"]
+  # Docker Desktop en Windows no siempre avisa al contenedor de los cambios en
+  # ficheros montados desde el host, así que Air los revisa periódicamente.
+  poll = true
+  poll_interval = 500
+  delay = 500
+  stop_on_error = true
+
+[misc]
+  clean_on_exit = true
