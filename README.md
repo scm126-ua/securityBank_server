@@ -14,6 +14,7 @@ SecurityBank/
     ├── cmd/api/main.go        # Punto de entrada: Gin, CORS y GET /api/health
     ├── internal/config/       # Lectura de variables de entorno
     ├── internal/database/     # Conexión con PostgreSQL mediante GORM
+    ├── database/init/         # Scripts SQL del esquema (001_schema.sql)
     ├── .air.toml              # Recarga automática del backend
     ├── compose.yaml           # Servicios frontend, backend y db
     ├── Dockerfile
@@ -52,6 +53,33 @@ docker compose logs -f backend            # ver los logs de un servicio
 docker compose ps                         # estado de los contenedores
 docker compose up --build -V frontend     # tras cambiar package.json: reinstala node_modules
 ```
+
+## Esquema de la base de datos
+
+El esquema está en [database/init/001_schema.sql](database/init/001_schema.sql) y es la
+fuente de verdad: el backend no usa `AutoMigrate` de GORM. Crea seis tablas:
+`users`, `accounts`, `account_users`, `transactions`, `documents` y `document_access`.
+
+**Volumen vacío (primer arranque):** PostgreSQL ejecuta automáticamente los scripts de
+`database/init/` (montado en `/docker-entrypoint-initdb.d/`). Si el volumen ya tiene
+datos, esos scripts **no se vuelven a ejecutar**.
+
+**Volumen con datos que quieres conservar:** aplica el script a mano (PowerShell):
+
+```sh
+docker compose up -d db
+docker compose exec db psql -v ON_ERROR_STOP=1 -U securitybank -d securitybank -f /docker-entrypoint-initdb.d/001_schema.sql
+```
+
+En Git Bash, antepón `MSYS_NO_PATHCONV=1` al segundo comando para que no convierta la ruta.
+También puedes abrir el fichero en DBeaver y ejecutarlo como script (Alt+X).
+
+El script se ejecuta en una única transacción y no borra nada: si alguna tabla ya existe,
+falla con `relation ... already exists` y no aplica ningún cambio. Los cambios futuros
+del esquema irán en scripts nuevos (`002_...sql`) con `ALTER TABLE`, que se aplican igual.
+
+**Volumen sin datos que conservar:** `docker compose down -v` y `docker compose up` para
+recrearlo desde cero (se borran todos los datos).
 
 ## Conexión con DBeaver
 

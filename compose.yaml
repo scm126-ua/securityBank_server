@@ -23,8 +23,13 @@ services:
     volumes:
       # Volumen persistente: los datos sobreviven a "docker compose down".
       - postgres-data:/var/lib/postgresql/data
+      # Scripts SQL de inicialización (esquema). PostgreSQL solo los ejecuta
+      # cuando el volumen postgres-data está vacío, es decir, en el primer arranque.
+      - ./database/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      # Comprueba por TCP que PostgreSQL acepta conexiones.
+      # Comprueba por TCP que PostgreSQL acepta conexiones. Durante la
+      # inicialización solo se escucha por socket local, así que el backend
+      # no arranca hasta que el esquema se ha creado.
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 5s
       timeout: 5s
