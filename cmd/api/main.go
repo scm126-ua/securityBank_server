@@ -2,16 +2,17 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 
 	"securityBank_server/internal/config"
 	"securityBank_server/internal/database"
+	"securityBank_server/internal/handlers"
 )
 
 func main() {
@@ -25,6 +26,18 @@ func main() {
 		log.Fatalf("error de base de datos: %v", err)
 	}
 	log.Println("conexión con PostgreSQL establecida")
+
+	// Avisa si falta alguna tabla (por ejemplo, si el esquema no se ha aplicado).
+	// No se crean tablas: el esquema solo se gestiona con los scripts SQL.
+	missing, err := database.MissingTables(context.Background(), db)
+	switch {
+	case err != nil:
+		log.Printf("AVISO: no se pudo comprobar el esquema: %v", err)
+	case len(missing) > 0:
+		log.Printf("AVISO: faltan tablas en la base de datos: %v. Aplica database/init/001_schema.sql (ver README).", missing)
+	default:
+		log.Println("esquema de la base de datos comprobado: todas las tablas existen")
+	}
 
 	router := gin.Default()
 
@@ -43,7 +56,8 @@ func main() {
 	}))
 
 	api := router.Group("/api")
-	api.GET("/health", healthHandler(db))
+	api.GET("/health", handlers.Health)
+	api.GET("/health/db", handlers.HealthDB(db))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -54,25 +68,5 @@ func main() {
 	log.Printf("backend escuchando en el puerto %s", cfg.Port)
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("error del servidor HTTP: %v", err)
-	}
-}
-
-// healthHandler responde con el estado de la aplicación y de la base de datos.
-func healthHandler(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if err := database.Ping(c.Request.Context(), db); err != nil {
-			// El detalle del error solo se registra en el servidor, no se envía al cliente.
-			log.Printf("health: PostgreSQL no responde: %v", err)
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status":   "error",
-				"database": "unavailable",
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status":   "ok",
-			"database": "ok",
-		})
 	}
 }

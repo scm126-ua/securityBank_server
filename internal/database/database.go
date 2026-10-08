@@ -8,6 +8,8 @@ import (
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"securityBank_server/internal/models"
 )
 
 // pingTimeout es el tiempo máximo que esperamos a que PostgreSQL responda.
@@ -16,7 +18,7 @@ const pingTimeout = 3 * time.Second
 // Connect abre la conexión con PostgreSQL y comprueba que la base de datos
 // responde antes de devolverla.
 //
-// No se ejecuta AutoMigrate: el esquema se creará mediante scripts SQL.
+// No se ejecuta AutoMigrate: el esquema lo crea database/init/001_schema.sql.
 func Connect(databaseURL string) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{
 		// Hacemos la comprobación nosotros mismos con Ping (y un timeout).
@@ -44,4 +46,39 @@ func Ping(ctx context.Context, db *gorm.DB) error {
 	defer cancel()
 
 	return sqlDB.PingContext(ctx)
+}
+
+// MissingTables devuelve las tablas de los modelos que no existen en la base
+// de datos. Solo consulta el catálogo de PostgreSQL: no crea ni modifica nada.
+func MissingTables(ctx context.Context, db *gorm.DB) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, pingTimeout)
+	defer cancel()
+
+	var expected []string
+	for _, model := range models.All() {
+		expected = append(expected, model.TableName())
+	}
+
+	var existing []string
+	err := db.WithContext(ctx).Raw(
+		`SELECT table_name FROM information_schema.tables
+		 WHERE table_schema = current_schema() AND table_name IN ?`,
+		expected,
+	).Scan(&existing).Error
+	if err != nil {
+		return nil, err
+	}
+
+	found := make(map[string]bool, len(existing))
+	for _, name := range existing {
+		found[name] = true
+	}
+
+	var missing []string
+	for _, name := range expected {
+		if !found[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing, nil
 }
