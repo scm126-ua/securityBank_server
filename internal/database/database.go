@@ -18,7 +18,8 @@ const pingTimeout = 3 * time.Second
 // Connect abre la conexión con PostgreSQL y comprueba que la base de datos
 // responde antes de devolverla.
 //
-// No se ejecuta AutoMigrate: el esquema lo crea database/init/001_schema.sql.
+// No se ejecuta AutoMigrate: el esquema lo crean las migraciones SQL de
+// database/migrations/ (servicio "migrate" de compose.yaml).
 func Connect(databaseURL string) (*gorm.DB, error) {
 	db, err := gorm.Open(postgres.Open(databaseURL), &gorm.Config{
 		// Hacemos la comprobación nosotros mismos con Ping (y un timeout).
