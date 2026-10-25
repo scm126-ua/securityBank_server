@@ -3,13 +3,11 @@ package services
 import (
 	"context"
 	"errors"
+
 	"net/mail"
-	"strings"
-
-	"golang.org/x/crypto/bcrypt"
-
 	"securityBank_server/internal/models"
 	"securityBank_server/internal/repositories"
+	"strings"
 )
 
 var (
@@ -39,11 +37,23 @@ func (s *UserService) Login(
 		return nil, err
 	}
 
-	// Logica para verificar la contraseña aqui
+	// Verificamos la contraseña proporcionada con el hash almacenado
+	isCorrect, err := VerifyPassword(password, user.PasswordHash, user.Salt)
+	if err != nil {
+		return nil, err
+	}
 
-	return user, nil
+	if isCorrect {
+		return user, nil
+	}
+
+	return nil, errors.New("La contraseña no coincide")
+
 }
 
+// AES-256-GCM para encriptacion
+// Par de claves asimetricas RSA-3072
+// PBKDF2-HMAC-SHA256 + salt aleatoria + muchas iteraciones.
 func (s *UserService) Register(
 	ctx context.Context,
 	email string,
@@ -75,11 +85,11 @@ func (s *UserService) Register(
 		return nil, err
 	}
 
-	// Generar Hash de contraseña
-	passwordHash, err := bcrypt.GenerateFromPassword(
-		[]byte(password),
-		bcrypt.DefaultCost,
-	)
+	// LOGICA DE CIFRADO
+	// Generamos una clave de 32 bytes
+
+	// Generar Hash de contraseña (la password es password + salt)
+	passwordHash, salt, err := HashPassword(password)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +98,8 @@ func (s *UserService) Register(
 		Email:        email,
 		Name:         name,
 		DNI:          dni,
-		PasswordHash: string(passwordHash),
+		Salt:         salt,
+		PasswordHash: passwordHash,
 		Role:         "CLIENT",
 	}
 
