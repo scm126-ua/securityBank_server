@@ -7,15 +7,23 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 
 	"securityBank_server/internal/config"
 	"securityBank_server/internal/database"
 	"securityBank_server/internal/handlers"
+	"securityBank_server/internal/repositories"
+	"securityBank_server/internal/services"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No se ha encontrado el archivo .env")
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("error de configuración: %v", err)
@@ -58,6 +66,13 @@ func main() {
 	api := router.Group("/api")
 	api.GET("/health", handlers.Health)
 	api.GET("/health/db", handlers.HealthDB(db))
+
+	userRepository := repositories.NewUserRepository(db)
+	userService := services.NewUserService(userRepository)
+
+	// Login y registro
+	api.POST("/login", handlers.Login(userService))
+	api.POST("/register", handlers.Register(userService))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

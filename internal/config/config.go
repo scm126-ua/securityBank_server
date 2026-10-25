@@ -16,8 +16,9 @@ type Config struct {
 // Load lee la configuración. DATABASE_URL es obligatoria; el resto de
 // variables tiene un valor por defecto pensado para desarrollo local.
 func Load() (Config, error) {
+
 	cfg := Config{
-		DatabaseURL: os.Getenv("DATABASE_URL"),
+		DatabaseURL: getEnv("DATABASE_URL", ""),
 		Port:        getEnv("BACKEND_PORT", "8080"),
 		CORSOrigin:  getEnv("CORS_ORIGIN", "http://localhost:5173"),
 	}
