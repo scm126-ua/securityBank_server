@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
-    "github.com/golang-jwt/jwt/v5"
+	"github.com/golang-jwt/jwt/v5"
 
 	"securityBank_server/internal/services"
 )
@@ -23,8 +24,7 @@ type RegisterRequest struct {
 	DNI      string `json:"dni" binding:"required"`
 }
 
-var jwtSecret = []byte("CAMBIA_ESTO_POR_UN_SECRETO_SEGURO")
-
+var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 func Login(userService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -43,19 +43,21 @@ func Login(userService *services.UserService) gin.HandlerFunc {
 			input.Password,
 		)
 
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "Credenciales incorrectas",
+		secret := os.Getenv("JWT_SECRET")
+		if secret == "" {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "JWT_SECRET no está configurado",
 			})
 			return
 		}
 
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 			"user_id": user.ID,
+			"iat":     time.Now().Unix(),
 			"exp":     time.Now().Add(time.Hour).Unix(),
 		})
 
-		tokenString, err := token.SignedString(jwtSecret)
+		tokenString, err := token.SignedString([]byte(secret))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "No se pudo generar el token",
