@@ -69,10 +69,16 @@ func main() {
 
 	userRepository := repositories.NewUserRepository(db)
 	userService := services.NewUserService(userRepository)
+	
+	accountRepository := repositories.NewAccountRepository(db)
+	accountService := services.NewAccountService(accountRepository)
 
 	// Login y registro
 	api.POST("/login", handlers.Login(userService))
-	api.POST("/register", handlers.Register(userService))
+	api.POST("/register", handlers.Register(userService, accountService))
+
+	// Cuentas bancarias
+	api.GET("/accounts", handlers.FindUserAccounts(accountService))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

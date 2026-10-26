@@ -51,8 +51,6 @@ func (s *UserService) Login(
 
 }
 
-// AES-256-GCM para encriptacion
-// Par de claves asimetricas RSA-3072
 // PBKDF2-HMAC-SHA256 + salt aleatoria + muchas iteraciones.
 func (s *UserService) Register(
 	ctx context.Context,
@@ -95,7 +93,7 @@ func (s *UserService) Register(
 	}
 
 	user := &models.User{
-		Email:        email,
+		Email:        _email,
 		Name:         name,
 		DNI:          dni,
 		Salt:         salt,
