@@ -87,13 +87,14 @@ func Register(
 			return
 		}
 
-		// Llamamos al servicio de login
+		// Llamamos al servicio de registro
 		user, err := userService.Register(
 			c.Request.Context(),
 			input.Email,
 			input.Password,
 			input.Name,
 			input.Surname,
+			input.DNI,
 		)
 
 		// Creamos una cuenta por defecto para el usuario

@@ -57,6 +57,7 @@ func (s *UserService) Register(
 	email string,
 	password string,
 	name string,
+	surname string,
 	dni string,
 ) (*models.User, error) {
 
@@ -94,8 +95,8 @@ func (s *UserService) Register(
 
 	user := &models.User{
 		Email:        _email,
-		Name:         name,
-		DNI:          dni,
+		Name:         strings.TrimSpace(name + " " + surname),
+		DNI:          strings.ToUpper(strings.TrimSpace(dni)),
 		Salt:         salt,
 		PasswordHash: passwordHash,
 		Role:         "CLIENT",
