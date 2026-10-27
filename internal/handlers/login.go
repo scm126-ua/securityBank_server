@@ -120,6 +120,11 @@ func Register(userService *services.UserService) gin.HandlerFunc {
 				"error": "El correo electrónico ya está registrado",
 			})
 			return
+		case errors.Is(err, services.ErrDNIExists):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "El DNI ya está registrado",
+			})
+			return
 		case err != nil:
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "No se pudo completar el registro",

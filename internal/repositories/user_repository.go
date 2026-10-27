@@ -40,6 +40,28 @@ func (r *UserRepository) FindByEmail(
 	return &user, nil
 }
 
+// Busca un usuario por su DNI y distingue cuando no existe.
+func (r *UserRepository) FindByDNI(
+	ctx context.Context,
+	dni string,
+) (*models.User, error) {
+	var user models.User
+
+	err := r.db.WithContext(ctx).
+		Where("dni = ?", dni).
+		First(&user).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrUserNotFound
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 // Crea el usuario y su cuenta inicial dentro de la misma transacción.
 func (r *UserRepository) CreateWithAccount(
 	ctx context.Context,

@@ -15,6 +15,7 @@ var (
 	ErrInvalidPassword = errors.New("contraseña no válida")
 	ErrInvalidDNI      = errors.New("DNI no válido")
 	ErrEmailExists     = errors.New("el email ya está registrado")
+	ErrDNIExists       = errors.New("el DNI ya está registrado")
 )
 
 type UserService struct {
@@ -84,6 +85,17 @@ func (s *UserService) Register(
 
 	if err == nil {
 		return nil, nil, ErrEmailExists
+	}
+
+	if !errors.Is(err, repositories.ErrUserNotFound) {
+		return nil, nil, err
+	}
+
+	// Comprobamos que el DNI no esté ya registrado
+	_, err = s.repo.FindByDNI(ctx, _dni)
+
+	if err == nil {
+		return nil, nil, ErrDNIExists
 	}
 
 	if !errors.Is(err, repositories.ErrUserNotFound) {
