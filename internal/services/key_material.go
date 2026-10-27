@@ -9,20 +9,23 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+
+	"securityBank_server/internal/models"
 )
 
 const maxEncryptedPrivateKeysSize = 16 * 1024
 
 var ErrInvalidChallengeSignature = errors.New("firma del desafío no válida")
+var ErrKeyMaterialUnavailable = errors.New("el usuario no tiene claves criptográficas")
 
 type PrivateKeyBundle struct {
-	Version    int16
-	Algorithm  string
-	KDF        string
-	Iterations int
-	Salt       string
-	Nonce      string
-	Ciphertext string
+	Version    int16  `json:"version"`
+	Algorithm  string `json:"algorithm"`
+	KDF        string `json:"kdf"`
+	Iterations int    `json:"iterations"`
+	Salt       string `json:"salt"`
+	Nonce      string `json:"nonce"`
+	Ciphertext string `json:"ciphertext"`
 }
 
 type UserKeyMaterial struct {
@@ -154,4 +157,27 @@ func verifyChallengeSignature(
 	}
 
 	return nil
+}
+
+// Prepara el paquete cifrado del usuario para enviarlo al cliente autenticado.
+func PrivateKeyBundleForUser(user *models.User) (PrivateKeyBundle, error) {
+	if user.PublicKey == nil ||
+		user.SigningPublicKey == nil ||
+		len(user.EncryptedPrivateKeys) < 16 ||
+		len(user.PrivateKeysSalt) != 16 ||
+		len(user.PrivateKeysNonce) != 12 ||
+		user.PrivateKeysIterations == nil ||
+		user.PrivateKeysVersion == nil {
+		return PrivateKeyBundle{}, ErrKeyMaterialUnavailable
+	}
+
+	return PrivateKeyBundle{
+		Version:    *user.PrivateKeysVersion,
+		Algorithm:  "AES-256-GCM",
+		KDF:        "PBKDF2-HMAC-SHA256",
+		Iterations: *user.PrivateKeysIterations,
+		Salt:       base64.StdEncoding.EncodeToString(user.PrivateKeysSalt),
+		Nonce:      base64.StdEncoding.EncodeToString(user.PrivateKeysNonce),
+		Ciphertext: base64.StdEncoding.EncodeToString(user.EncryptedPrivateKeys),
+	}, nil
 }

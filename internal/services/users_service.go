@@ -55,6 +55,29 @@ func (s *UserService) Login(
 
 }
 
+// Comprueba la firma del desafío con la clave pública registrada del usuario.
+func (s *UserService) VerifyChallenge(
+	ctx context.Context,
+	userID int64,
+	challenge []byte,
+	signature string,
+) (*models.User, error) {
+	user, err := s.repo.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user.SigningPublicKey == nil {
+		return nil, ErrKeyMaterialUnavailable
+	}
+
+	if err := verifyChallengeSignature(*user.SigningPublicKey, challenge, signature); err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
 // PBKDF2-HMAC-SHA256 + salt aleatoria + muchas iteraciones.
 func (s *UserService) Register(
 	ctx context.Context,

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"os"
@@ -15,6 +16,11 @@ import (
 type LoginRequest struct {
 	Email    string `json:"email" binding:"required"`
 	Password string `json:"password" binding:"required"`
+}
+
+type LoginVerificationRequest struct {
+	ChallengeID string `json:"challenge_id" binding:"required"`
+	Signature   string `json:"signature" binding:"required"`
 }
 
 type RegisterRequest struct {
@@ -61,21 +67,7 @@ func Login(userService *services.UserService) gin.HandlerFunc {
 			return
 		}
 
-		secret := os.Getenv("JWT_SECRET")
-		if secret == "" {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "JWT_SECRET no está configurado",
-			})
-			return
-		}
-
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-			"user_id": user.ID,
-			"iat":     time.Now().Unix(),
-			"exp":     time.Now().Add(time.Hour).Unix(),
-		})
-
-		tokenString, err := token.SignedString([]byte(secret))
+		tokenString, err := createJWT(user.ID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "No se pudo generar el token",
@@ -89,6 +81,109 @@ func Login(userService *services.UserService) gin.HandlerFunc {
 			"user":   user,
 		})
 	}
+}
+
+// Inicia un acceso después de comprobar la contraseña y entrega un desafío.
+func StartLogin(
+	userService *services.UserService,
+	challengeService *services.AuthChallengeService,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var input LoginRequest
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Datos de login inválidos"})
+			return
+		}
+
+		user, err := userService.Login(c.Request.Context(), input.Email, input.Password)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Correo o contraseña incorrectos"})
+			return
+		}
+
+		privateKeyBundle, err := services.PrivateKeyBundleForUser(user)
+		if errors.Is(err, services.ErrKeyMaterialUnavailable) {
+			c.JSON(http.StatusConflict, gin.H{"error": "El usuario no tiene claves criptográficas"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo iniciar sesión"})
+			return
+		}
+
+		challengeID, challenge, expiresAt, err := challengeService.Create(user.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo generar el desafío"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":             "challenge_required",
+			"challenge_id":       challengeID,
+			"challenge":          base64.StdEncoding.EncodeToString(challenge),
+			"expires_at":         expiresAt,
+			"private_key_bundle": privateKeyBundle,
+		})
+	}
+}
+
+// Verifica la firma de un desafío consumible y entrega el token de sesión.
+func VerifyLogin(
+	userService *services.UserService,
+	challengeService *services.AuthChallengeService,
+) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var input LoginVerificationRequest
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Verificación de login inválida"})
+			return
+		}
+
+		challenge, err := challengeService.Consume(input.ChallengeID)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Desafío inválido o expirado"})
+			return
+		}
+
+		user, err := userService.VerifyChallenge(
+			c.Request.Context(),
+			challenge.UserID,
+			challenge.Nonce,
+			input.Signature,
+		)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Firma del desafío no válida"})
+			return
+		}
+
+		tokenString, err := createJWT(user.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo generar el token"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+			"token":  tokenString,
+			"user":   user,
+		})
+	}
+}
+
+// Genera un token de sesión de una hora para el usuario verificado.
+func createJWT(userID int64) (string, error) {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return "", errors.New("JWT_SECRET no está configurado")
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": userID,
+		"iat":     time.Now().Unix(),
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	})
+
+	return token.SignedString([]byte(secret))
 }
 
 func Register(userService *services.UserService) gin.HandlerFunc {

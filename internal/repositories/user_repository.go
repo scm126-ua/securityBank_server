@@ -40,6 +40,24 @@ func (r *UserRepository) FindByEmail(
 	return &user, nil
 }
 
+// Busca un usuario por su identificador y distingue cuando no existe.
+func (r *UserRepository) FindByID(
+	ctx context.Context,
+	userID int64,
+) (*models.User, error) {
+	var user models.User
+
+	err := r.db.WithContext(ctx).First(&user, userID).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}
+
 // Busca un usuario por su DNI y distingue cuando no existe.
 func (r *UserRepository) FindByDNI(
 	ctx context.Context,
