@@ -41,13 +41,13 @@ func (r *AccountRepository) FindByIBAN(
 	return &account, nil
 }
 
-// Buscar todas las cuentas del
+// Buscar todas las cuentas del usuario
 
 func (r *AccountRepository) FindByUser(
 	ctx context.Context,
 	userId int64,
 ) ([]models.Account, error) {
-	var accounts []models.Account
+	accounts := make([]models.Account, 0)
 
 	err := r.db.WithContext(ctx).
 		Joins("JOIN account_users ON account_users.account_id = accounts.id").
@@ -56,10 +56,6 @@ func (r *AccountRepository) FindByUser(
 
 	if err != nil {
 		return nil, err
-	}
-
-	if len(accounts) == 0 {
-		return nil, ErrAccountNotFound
 	}
 
 	return accounts, nil
