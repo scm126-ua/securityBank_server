@@ -86,6 +86,28 @@ func isNumeric(value string) bool {
 	return true
 }
 
+// Comprueba la longitud y la presencia de letras y números.
+func ValidatePassword(password string) bool {
+	if len(password) < 8 || len(password) > 72 {
+		return false
+	}
+
+	hasLetter := false
+	hasNumber := false
+
+	for _, character := range password {
+		if (character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') {
+			hasLetter = true
+		}
+		if character >= '0' && character <= '9' {
+			hasNumber = true
+		}
+	}
+
+	return hasLetter && hasNumber
+}
+
 // Comprueba el formato y la letra de control de un DNI español.
 func ValidateSpanishDNI(dni string) bool {
 	dni = strings.ToUpper(strings.TrimSpace(dni))

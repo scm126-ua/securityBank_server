@@ -71,7 +71,7 @@ func (s *UserService) Register(
 		return nil, ErrInvalidEmail
 	}
 
-	if len(password) < 8 || len(password) > 72 {
+	if !ValidatePassword(password) {
 		return nil, ErrInvalidPassword
 	}
 
