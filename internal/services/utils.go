@@ -30,19 +30,12 @@ func GenerateSpanishIBAN(bankCode, branchCode string) (string, error) {
 		accountNumber += n.String()
 	}
 
-	// Calcular los dígitos de control nacionales.
-	basicAccount := bankCode + branchCode + "00" + accountNumber
-	nationalCheck := 11 - mod97(basicAccount)
+	// Calcular por separado los dos dígitos de control nacionales.
+	bankBranchCheck := calculateAccountCheckDigit("00" + bankCode + branchCode)
+	accountCheck := calculateAccountCheckDigit(accountNumber)
 
-	switch nationalCheck {
-	case 11:
-		nationalCheck = 0
-	case 10:
-		nationalCheck = 1
-	}
-
-	domestic := fmt.Sprintf("%s%s%02d%s",
-		bankCode, branchCode, nationalCheck, accountNumber)
+	domestic := fmt.Sprintf("%s%s%d%d%s",
+		bankCode, branchCode, bankBranchCheck, accountCheck, accountNumber)
 
 	// Calcular los dígitos de control internacionales.
 	// ES00 equivale a E=14, S=28, 0, 0.
@@ -51,6 +44,26 @@ func GenerateSpanishIBAN(bankCode, branchCode string) (string, error) {
 
 	iban := fmt.Sprintf("ES%02d%s", checkDigits, domestic)
 	return iban, nil
+}
+
+// Calcula un dígito de control nacional mediante módulo 11.
+func calculateAccountCheckDigit(value string) int {
+	weights := [...]int{1, 2, 4, 8, 5, 10, 9, 7, 3, 6}
+	sum := 0
+
+	for i, digit := range value {
+		sum += int(digit-'0') * weights[i]
+	}
+
+	checkDigit := 11 - sum%11
+	if checkDigit == 10 {
+		return 1
+	}
+	if checkDigit == 11 {
+		return 0
+	}
+
+	return checkDigit
 }
 
 func mod97(value string) int {
