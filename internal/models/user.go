@@ -23,7 +23,9 @@ type User struct {
 	// NULL hasta completar el registro criptográfico.
 	PublicKey *string `gorm:"column:public_key" json:"public_key"`
 	// Clave pública para verificar las firmas digitales del usuario.
-	SigningPublicKey      *string   `gorm:"column:signing_public_key" json:"signing_public_key"`
+	SigningPublicKey *string `gorm:"column:signing_public_key" json:"signing_public_key"`
+	// Firma del servidor que vincula el correo con las dos claves públicas.
+	PublicKeysSignature   *string   `gorm:"column:public_keys_signature" json:"public_keys_signature"`
 	EncryptedPrivateKeys  []byte    `gorm:"column:encrypted_private_keys" json:"-"`
 	PrivateKeysSalt       []byte    `gorm:"column:private_keys_salt" json:"-"`
 	PrivateKeysNonce      []byte    `gorm:"column:private_keys_nonce" json:"-"`

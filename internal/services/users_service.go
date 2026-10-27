@@ -2,12 +2,13 @@ package services
 
 import (
 	"context"
+	"crypto/rsa"
 	"errors"
-
 	"net/mail"
+	"strings"
+
 	"securityBank_server/internal/models"
 	"securityBank_server/internal/repositories"
-	"strings"
 )
 
 var (
@@ -20,13 +21,18 @@ var (
 )
 
 type UserService struct {
-	repo *repositories.UserRepository
+	repo             *repositories.UserRepository
+	serverPrivateKey *rsa.PrivateKey
 }
 
 func NewUserService(
 	repo *repositories.UserRepository,
+	serverPrivateKey *rsa.PrivateKey,
 ) *UserService {
-	return &UserService{repo: repo}
+	return &UserService{
+		repo:             repo,
+		serverPrivateKey: serverPrivateKey,
+	}
 }
 
 func (s *UserService) Login(
@@ -142,6 +148,16 @@ func (s *UserService) Register(
 		return nil, nil, err
 	}
 
+	publicKeysSignature, err := SignUserPublicKeys(
+		s.serverPrivateKey,
+		_email,
+		validatedKeys.publicKey,
+		validatedKeys.signingPublicKey,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	user := &models.User{
 		Email:                 _email,
 		Name:                  strings.TrimSpace(name + " " + surname),
@@ -151,6 +167,7 @@ func (s *UserService) Register(
 		Role:                  models.UserRoleClient,
 		PublicKey:             &validatedKeys.publicKey,
 		SigningPublicKey:      &validatedKeys.signingPublicKey,
+		PublicKeysSignature:   &publicKeysSignature,
 		EncryptedPrivateKeys:  validatedKeys.ciphertext,
 		PrivateKeysSalt:       validatedKeys.salt,
 		PrivateKeysNonce:      validatedKeys.nonce,

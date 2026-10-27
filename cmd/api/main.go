@@ -75,7 +75,7 @@ func main() {
 	api.GET("/health/db", handlers.HealthDB(db))
 
 	userRepository := repositories.NewUserRepository(db)
-	userService := services.NewUserService(userRepository)
+	userService := services.NewUserService(userRepository, serverPrivateKey)
 
 	accountRepository := repositories.NewAccountRepository(db)
 	accountService := services.NewAccountService(accountRepository)
