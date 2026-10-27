@@ -33,7 +33,8 @@ func (s *UserService) Login(
 	email string,
 	password string,
 ) (*models.User, error) {
-	user, err := s.repo.FindByEmail(ctx, email)
+	_email := strings.ToLower(strings.TrimSpace(email))
+	user, err := s.repo.FindByEmail(ctx, _email)
 
 	if err != nil {
 		return nil, err
