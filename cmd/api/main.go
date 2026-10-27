@@ -73,6 +73,7 @@ func main() {
 	api := router.Group("/api")
 	api.GET("/health", handlers.Health)
 	api.GET("/health/db", handlers.HealthDB(db))
+	api.GET("/server/public-key", handlers.ServerPublicIdentity(serverPrivateKey))
 
 	userRepository := repositories.NewUserRepository(db)
 	userService := services.NewUserService(userRepository, serverPrivateKey)

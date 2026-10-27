@@ -3,7 +3,10 @@ package services
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -12,6 +15,15 @@ import (
 )
 
 const serverKeySize = 3072
+
+type ServerPublicIdentity struct {
+	Version            int    `json:"version"`
+	PublicKeyAlgorithm string `json:"public_key_algorithm"`
+	SignatureAlgorithm string `json:"signature_algorithm"`
+	JWTAlgorithm       string `json:"jwt_algorithm"`
+	PublicKey          string `json:"public_key"`
+	FingerprintSHA256  string `json:"fingerprint_sha256"`
+}
 
 // Carga la identidad del servidor o crea una nueva cuando todavía no existe.
 func LoadOrCreateServerKey(path string) (*rsa.PrivateKey, error) {
@@ -40,6 +52,29 @@ func LoadOrCreateServerKey(path string) (*rsa.PrivateKey, error) {
 	}
 
 	return privateKey, nil
+}
+
+// Exporta únicamente la parte pública y su huella para que los clientes identifiquen al servidor.
+func ExportServerPublicIdentity(privateKey *rsa.PrivateKey) (ServerPublicIdentity, error) {
+	if privateKey == nil {
+		return ServerPublicIdentity{}, errors.New("la clave privada del servidor no está disponible")
+	}
+
+	encodedPublicKey, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return ServerPublicIdentity{}, fmt.Errorf("no se pudo exportar la clave pública del servidor: %w", err)
+	}
+
+	fingerprint := sha256.Sum256(encodedPublicKey)
+
+	return ServerPublicIdentity{
+		Version:            1,
+		PublicKeyAlgorithm: fmt.Sprintf("RSA-%d", privateKey.N.BitLen()),
+		SignatureAlgorithm: "RSA-PSS-SHA256",
+		JWTAlgorithm:       "RS256",
+		PublicKey:          base64.StdEncoding.EncodeToString(encodedPublicKey),
+		FingerprintSHA256:  hex.EncodeToString(fingerprint[:]),
+	}, nil
 }
 
 // Lee y valida una clave privada RSA-3072 codificada en PEM.
