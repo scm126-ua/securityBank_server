@@ -24,8 +24,6 @@ type RegisterRequest struct {
 	DNI      string `json:"dni" binding:"required"`
 }
 
-var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
-
 func Login(userService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var input LoginRequest
@@ -42,6 +40,12 @@ func Login(userService *services.UserService) gin.HandlerFunc {
 			input.Email,
 			input.Password,
 		)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "Correo o contraseña incorrectos",
+			})
+			return
+		}
 
 		secret := os.Getenv("JWT_SECRET")
 		if secret == "" {
