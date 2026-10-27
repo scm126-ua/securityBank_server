@@ -11,11 +11,12 @@ import (
 )
 
 var (
-	ErrInvalidEmail    = errors.New("email no válido")
-	ErrInvalidPassword = errors.New("contraseña no válida")
-	ErrInvalidDNI      = errors.New("DNI no válido")
-	ErrEmailExists     = errors.New("el email ya está registrado")
-	ErrDNIExists       = errors.New("el DNI ya está registrado")
+	ErrInvalidEmail       = errors.New("email no válido")
+	ErrInvalidPassword    = errors.New("contraseña no válida")
+	ErrInvalidDNI         = errors.New("DNI no válido")
+	ErrInvalidKeyMaterial = errors.New("material criptográfico no válido")
+	ErrEmailExists        = errors.New("el email ya está registrado")
+	ErrDNIExists          = errors.New("el DNI ya está registrado")
 )
 
 type UserService struct {
@@ -62,6 +63,7 @@ func (s *UserService) Register(
 	name string,
 	surname string,
 	dni string,
+	keyMaterial UserKeyMaterial,
 ) (*models.User, *models.Account, error) {
 
 	// Normalizamos y validamos el email, la contraseña y el DNI
@@ -79,6 +81,11 @@ func (s *UserService) Register(
 
 	if !ValidateSpanishDNI(_dni) {
 		return nil, nil, ErrInvalidDNI
+	}
+
+	validatedKeys, err := validateUserKeyMaterial(keyMaterial)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Comprobamos que el email no esté ya registrado
@@ -113,12 +120,19 @@ func (s *UserService) Register(
 	}
 
 	user := &models.User{
-		Email:        _email,
-		Name:         strings.TrimSpace(name + " " + surname),
-		DNI:          _dni,
-		Salt:         salt,
-		PasswordHash: passwordHash,
-		Role:         "CLIENT",
+		Email:                 _email,
+		Name:                  strings.TrimSpace(name + " " + surname),
+		DNI:                   _dni,
+		Salt:                  salt,
+		PasswordHash:          passwordHash,
+		Role:                  models.UserRoleClient,
+		PublicKey:             &validatedKeys.publicKey,
+		SigningPublicKey:      &validatedKeys.signingPublicKey,
+		EncryptedPrivateKeys:  validatedKeys.ciphertext,
+		PrivateKeysSalt:       validatedKeys.salt,
+		PrivateKeysNonce:      validatedKeys.nonce,
+		PrivateKeysIterations: &validatedKeys.iterations,
+		PrivateKeysVersion:    &validatedKeys.version,
 	}
 
 	iban, err := GenerateSpanishIBAN("0036", "1234")
