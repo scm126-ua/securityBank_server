@@ -21,17 +21,17 @@ func NewAccountService(
 // Crear una cuenta
 func (s *AccountService) CreateAccount(
 	ctx context.Context,
-	user *models.User,
+	userID int64,
 ) (*models.Account, error) {
 
 	// Generar IBAN
-	iban, errIban := GenerateSpanishIBAN("0036","1234")
+	iban, errIban := GenerateSpanishIBAN("0036", "1234")
 
-	if errIban != nil{
-		return nil, errIban 
+	if errIban != nil {
+		return nil, errIban
 	}
 
-	account, err := s.repo.Create(ctx, user, iban)
+	account, err := s.repo.Create(ctx, userID, iban)
 
 	if err != nil {
 		return account, err

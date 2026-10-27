@@ -63,7 +63,7 @@ func (r *AccountRepository) FindByUser(
 
 func (r *AccountRepository) Create(
 	ctx context.Context,
-	user *models.User,
+	userID int64,
 	iban string,
 ) (*models.Account, error) {
 	var account *models.Account
@@ -80,7 +80,7 @@ func (r *AccountRepository) Create(
 
 		accountUser := models.AccountUser{
 			AccountID: account.ID,
-			UserID:    user.ID,
+			UserID:    userID,
 			Role:      "OWNER",
 		}
 

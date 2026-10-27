@@ -83,7 +83,8 @@ func main() {
 	protected.Use(middleware.AuthMiddleware())
 
 	protected.GET("/accounts", handlers.FindUserAccounts(accountService))
-	
+	protected.POST("/accounts", handlers.CreateAccount(accountService))
+
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,

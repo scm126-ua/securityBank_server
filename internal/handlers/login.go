@@ -102,7 +102,7 @@ func Register(
 		)
 
 		// Creamos una cuenta por defecto para el usuario
-		account, err := accountService.CreateAccount(c, user)
+		account, err := accountService.CreateAccount(c.Request.Context(), user.ID)
 
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
