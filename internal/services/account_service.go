@@ -4,8 +4,15 @@ package services
 
 import (
 	"context"
+
 	"securityBank_server/internal/models"
 	"securityBank_server/internal/repositories"
+)
+
+var (
+	ErrAccountNotFound      = repositories.ErrAccountNotFound
+	ErrAccountHasBalance    = repositories.ErrAccountHasBalance
+	ErrAccountAlreadyClosed = repositories.ErrAccountAlreadyClosed
 )
 
 type AccountService struct {
@@ -46,4 +53,13 @@ func (s *AccountService) FindUserAccounts(ctx context.Context,
 	accounts, err := s.repo.FindByUser(ctx, userId)
 
 	return accounts, err
+}
+
+// Solicita el cierre de una cuenta del usuario autenticado.
+func (s *AccountService) CloseAccount(
+	ctx context.Context,
+	userID int64,
+	accountID int64,
+) (*models.Account, error) {
+	return s.repo.Close(ctx, userID, accountID)
 }

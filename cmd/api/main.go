@@ -84,6 +84,7 @@ func main() {
 
 	protected.GET("/accounts", handlers.FindUserAccounts(accountService))
 	protected.POST("/accounts", handlers.CreateAccount(accountService))
+	protected.PATCH("/accounts/:id/close", handlers.CloseAccount(accountService))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

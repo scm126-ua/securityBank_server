@@ -5,11 +5,16 @@ import (
 	"errors"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"securityBank_server/internal/models"
 )
 
-var ErrAccountNotFound = errors.New("Cuenta no encontrada")
+var (
+	ErrAccountNotFound      = errors.New("Cuenta no encontrada")
+	ErrAccountHasBalance    = errors.New("La cuenta tiene saldo")
+	ErrAccountAlreadyClosed = errors.New("La cuenta ya está cerrada")
+)
 
 type AccountRepository struct {
 	db *gorm.DB
@@ -96,4 +101,55 @@ func (r *AccountRepository) Create(
 	}
 
 	return account, nil
+}
+
+// Cierra una cuenta del propietario dentro de una transacción.
+func (r *AccountRepository) Close(
+	ctx context.Context,
+	userID int64,
+	accountID int64,
+) (*models.Account, error) {
+	var account models.Account
+
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var accountUser models.AccountUser
+		err := tx.Where(
+			"user_id = ? AND account_id = ? AND role = ?",
+			userID,
+			accountID,
+			models.AccountRoleOwner,
+		).First(&accountUser).Error
+
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrAccountNotFound
+		}
+		if err != nil {
+			return err
+		}
+
+		err = tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			First(&account, accountID).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrAccountNotFound
+		}
+		if err != nil {
+			return err
+		}
+
+		if account.Status == models.AccountStatusClosed {
+			return ErrAccountAlreadyClosed
+		}
+		if !account.Balance.IsZero() {
+			return ErrAccountHasBalance
+		}
+
+		account.Status = models.AccountStatusClosed
+		return tx.Model(&account).Update("status", account.Status).Error
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &account, nil
 }
