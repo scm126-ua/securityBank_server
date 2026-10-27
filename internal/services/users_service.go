@@ -12,12 +12,13 @@ import (
 )
 
 var (
-	ErrInvalidEmail       = errors.New("email no válido")
-	ErrInvalidPassword    = errors.New("contraseña no válida")
-	ErrInvalidDNI         = errors.New("DNI no válido")
-	ErrInvalidKeyMaterial = errors.New("material criptográfico no válido")
-	ErrEmailExists        = errors.New("el email ya está registrado")
-	ErrDNIExists          = errors.New("el DNI ya está registrado")
+	ErrInvalidEmail          = errors.New("email no válido")
+	ErrInvalidPassword       = errors.New("contraseña no válida")
+	ErrInvalidDNI            = errors.New("DNI no válido")
+	ErrInvalidKeyMaterial    = errors.New("material criptográfico no válido")
+	ErrInvalidKeyCertificate = errors.New("certificado de claves públicas no válido")
+	ErrEmailExists           = errors.New("el email ya está registrado")
+	ErrDNIExists             = errors.New("el DNI ya está registrado")
 )
 
 type UserService struct {
@@ -73,8 +74,21 @@ func (s *UserService) VerifyChallenge(
 		return nil, err
 	}
 
-	if user.SigningPublicKey == nil {
+	if user.PublicKey == nil ||
+		user.SigningPublicKey == nil ||
+		user.PublicKeysSignature == nil ||
+		s.serverPrivateKey == nil {
 		return nil, ErrKeyMaterialUnavailable
+	}
+
+	if err := VerifyUserPublicKeys(
+		&s.serverPrivateKey.PublicKey,
+		user.Email,
+		*user.PublicKey,
+		*user.SigningPublicKey,
+		*user.PublicKeysSignature,
+	); err != nil {
+		return nil, ErrInvalidKeyCertificate
 	}
 
 	if err := verifyChallengeSignature(*user.SigningPublicKey, challenge, signature); err != nil {
