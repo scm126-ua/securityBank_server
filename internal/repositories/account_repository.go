@@ -74,29 +74,40 @@ func (r *AccountRepository) Create(
 	var account *models.Account
 
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		account = &models.Account{
-			IBAN:   iban,
-			Status: models.AccountStatusActive,
-		}
-
-		if err := tx.Create(account).Error; err != nil {
-			return err
-		}
-
-		accountUser := models.AccountUser{
-			AccountID: account.ID,
-			UserID:    userID,
-			Role:      "OWNER",
-		}
-
-		if err := tx.Create(&accountUser).Error; err != nil {
-			return err
-		}
-
-		return nil
+		var err error
+		account, err = createAccount(tx, userID, iban)
+		return err
 	})
 
 	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
+}
+
+// Crea una cuenta y asigna su propietario usando la transacción recibida.
+func createAccount(
+	tx *gorm.DB,
+	userID int64,
+	iban string,
+) (*models.Account, error) {
+	account := &models.Account{
+		IBAN:   iban,
+		Status: models.AccountStatusActive,
+	}
+
+	if err := tx.Create(account).Error; err != nil {
+		return nil, err
+	}
+
+	accountUser := models.AccountUser{
+		AccountID: account.ID,
+		UserID:    userID,
+		Role:      "OWNER",
+	}
+
+	if err := tx.Create(&accountUser).Error; err != nil {
 		return nil, err
 	}
 

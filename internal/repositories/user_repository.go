@@ -40,9 +40,27 @@ func (r *UserRepository) FindByEmail(
 	return &user, nil
 }
 
-func (r *UserRepository) Create(
+// Crea el usuario y su cuenta inicial dentro de la misma transacción.
+func (r *UserRepository) CreateWithAccount(
 	ctx context.Context,
 	user *models.User,
-) error {
-	return r.db.WithContext(ctx).Create(user).Error
+	iban string,
+) (*models.Account, error) {
+	var account *models.Account
+
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+
+		var err error
+		account, err = createAccount(tx, user.ID, iban)
+		return err
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
 }

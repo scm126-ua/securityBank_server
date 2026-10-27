@@ -76,7 +76,7 @@ func main() {
 
 	// Login y registro
 	api.POST("/login", handlers.Login(userService))
-	api.POST("/register", handlers.Register(userService, accountService))
+	api.POST("/register", handlers.Register(userService))
 
 	// Cuentas bancarias
 	protected := api.Group("/")

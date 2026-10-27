@@ -60,7 +60,7 @@ func (s *UserService) Register(
 	name string,
 	surname string,
 	dni string,
-) (*models.User, error) {
+) (*models.User, *models.Account, error) {
 
 	// Normalizamos y validamos el email, la contraseña y el DNI
 	_email := strings.ToLower(strings.TrimSpace(email))
@@ -68,26 +68,26 @@ func (s *UserService) Register(
 
 	parsedEmail, err := mail.ParseAddress(_email)
 	if err != nil || parsedEmail.Address != _email {
-		return nil, ErrInvalidEmail
+		return nil, nil, ErrInvalidEmail
 	}
 
 	if !ValidatePassword(password) {
-		return nil, ErrInvalidPassword
+		return nil, nil, ErrInvalidPassword
 	}
 
 	if !ValidateSpanishDNI(_dni) {
-		return nil, ErrInvalidDNI
+		return nil, nil, ErrInvalidDNI
 	}
 
 	// Comprobamos que el email no esté ya registrado
 	_, err = s.repo.FindByEmail(ctx, _email)
 
 	if err == nil {
-		return nil, ErrEmailExists
+		return nil, nil, ErrEmailExists
 	}
 
 	if !errors.Is(err, repositories.ErrUserNotFound) {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// LOGICA DE CIFRADO
@@ -96,7 +96,7 @@ func (s *UserService) Register(
 	// Generar Hash de contraseña (la password es password + salt)
 	passwordHash, salt, err := HashPassword(password)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	user := &models.User{
@@ -108,9 +108,15 @@ func (s *UserService) Register(
 		Role:         "CLIENT",
 	}
 
-	if err := s.repo.Create(ctx, user); err != nil {
-		return nil, err
+	iban, err := GenerateSpanishIBAN("0036", "1234")
+	if err != nil {
+		return nil, nil, err
 	}
 
-	return user, nil
+	account, err := s.repo.CreateWithAccount(ctx, user, iban)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return user, account, nil
 }

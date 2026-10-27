@@ -78,9 +78,7 @@ func Login(userService *services.UserService) gin.HandlerFunc {
 	}
 }
 
-func Register(
-	userService *services.UserService,
-	accountService *services.AccountService) gin.HandlerFunc {
+func Register(userService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var input RegisterRequest
 
@@ -93,7 +91,7 @@ func Register(
 		}
 
 		// Llamamos al servicio de registro
-		user, err := userService.Register(
+		user, account, err := userService.Register(
 			c.Request.Context(),
 			input.Email,
 			input.Password,
@@ -125,16 +123,6 @@ func Register(
 		case err != nil:
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": "No se pudo completar el registro",
-			})
-			return
-		}
-
-		// Creamos una cuenta por defecto para el usuario
-		account, err := accountService.CreateAccount(c.Request.Context(), user.ID)
-
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "Credenciales incorrectas " + err.Error(),
 			})
 			return
 		}
