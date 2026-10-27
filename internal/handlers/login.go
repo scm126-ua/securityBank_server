@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"time"
@@ -100,6 +101,28 @@ func Register(
 			input.Surname,
 			input.DNI,
 		)
+		switch {
+		case errors.Is(err, services.ErrInvalidEmail):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "El correo electrónico no es válido",
+			})
+			return
+		case errors.Is(err, services.ErrInvalidPassword):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "La contraseña no es válida",
+			})
+			return
+		case errors.Is(err, services.ErrEmailExists):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "El correo electrónico ya está registrado",
+			})
+			return
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "No se pudo completar el registro",
+			})
+			return
+		}
 
 		// Creamos una cuenta por defecto para el usuario
 		account, err := accountService.CreateAccount(c.Request.Context(), user.ID)
