@@ -9,6 +9,9 @@ tmp/
 *.test
 *.out
 
+# Claves privadas generadas para la identidad local del servidor
+.keys/
+
 # Editores y sistema operativo
 .vscode/
 .idea/
