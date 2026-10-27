@@ -1,16 +1,16 @@
 package middleware
 
 import (
+	"crypto/rsa"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
-func AuthMiddleware() gin.HandlerFunc {
+func AuthMiddleware(serverPublicKey *rsa.PublicKey) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		parts := strings.SplitN(authHeader, " ", 2)
@@ -22,28 +22,15 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// Leer el secreto al procesar la petición.
-		secret := os.Getenv("JWT_SECRET")
-		if secret == "" {
-			fmt.Println("ERROR: JWT_SECRET no está configurado")
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"error": "Configuración de autenticación incorrecta",
-			})
-			return
-		}
-
 		token, err := jwt.Parse(parts[1], func(token *jwt.Token) (interface{}, error) {
-			if token.Method != jwt.SigningMethodHS256 {
+			if token.Method != jwt.SigningMethodRS256 {
 				return nil, fmt.Errorf("algoritmo JWT no permitido: %v", token.Header["alg"])
 			}
 
-			return []byte(secret), nil
+			return serverPublicKey, nil
 		})
 
 		if err != nil {
-			// Temporalmente, para diagnosticar el problema.
-			fmt.Println("Error validando JWT:", err)
-
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": "Token inválido o expirado",
 			})

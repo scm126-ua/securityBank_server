@@ -30,6 +30,12 @@ func main() {
 		log.Fatalf("error de configuración: %v", err)
 	}
 
+	serverPrivateKey, err := services.LoadOrCreateServerKey(cfg.ServerKeyPath)
+	if err != nil {
+		log.Fatalf("error cargando la identidad del servidor: %v", err)
+	}
+	log.Println("identidad asimétrica del servidor preparada")
+
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("error de base de datos: %v", err)
@@ -77,12 +83,12 @@ func main() {
 
 	// Login y registro
 	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService))
-	api.POST("/login/verify", handlers.VerifyLogin(userService, challengeService))
+	api.POST("/login/verify", handlers.VerifyLogin(userService, challengeService, serverPrivateKey))
 	api.POST("/register", handlers.Register(userService))
 
 	// Cuentas bancarias
 	protected := api.Group("/")
-	protected.Use(middleware.AuthMiddleware())
+	protected.Use(middleware.AuthMiddleware(&serverPrivateKey.PublicKey))
 
 	protected.GET("/accounts", handlers.FindUserAccounts(accountService))
 	protected.POST("/accounts", handlers.CreateAccount(accountService))

@@ -1,10 +1,10 @@
 package handlers
 
 import (
+	"crypto/rsa"
 	"encoding/base64"
 	"errors"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -92,6 +92,7 @@ func StartLogin(
 func VerifyLogin(
 	userService *services.UserService,
 	challengeService *services.AuthChallengeService,
+	serverPrivateKey *rsa.PrivateKey,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var input LoginVerificationRequest
@@ -117,7 +118,7 @@ func VerifyLogin(
 			return
 		}
 
-		tokenString, err := createJWT(user.ID)
+		tokenString, err := createJWT(user.ID, serverPrivateKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo generar el token"})
 			return
@@ -132,19 +133,14 @@ func VerifyLogin(
 }
 
 // Genera un token de sesión de una hora para el usuario verificado.
-func createJWT(userID int64) (string, error) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		return "", errors.New("JWT_SECRET no está configurado")
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+func createJWT(userID int64, serverPrivateKey *rsa.PrivateKey) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 		"user_id": userID,
 		"iat":     time.Now().Unix(),
 		"exp":     time.Now().Add(time.Hour).Unix(),
 	})
 
-	return token.SignedString([]byte(secret))
+	return token.SignedString(serverPrivateKey)
 }
 
 func Register(userService *services.UserService) gin.HandlerFunc {

@@ -8,9 +8,10 @@ import (
 
 // Config agrupa los valores de configuración que necesita el backend.
 type Config struct {
-	DatabaseURL string // Cadena de conexión a PostgreSQL (DATABASE_URL).
-	Port        string // Puerto HTTP del backend (BACKEND_PORT).
-	CORSOrigin  string // Origen del frontend permitido por CORS (CORS_ORIGIN).
+	DatabaseURL   string // Cadena de conexión a PostgreSQL (DATABASE_URL).
+	Port          string // Puerto HTTP del backend (BACKEND_PORT).
+	CORSOrigin    string // Origen del frontend permitido por CORS (CORS_ORIGIN).
+	ServerKeyPath string // Ruta de la clave privada del servidor (SERVER_KEY_PATH).
 }
 
 // Load lee la configuración. DATABASE_URL es obligatoria; el resto de
@@ -18,9 +19,10 @@ type Config struct {
 func Load() (Config, error) {
 
 	cfg := Config{
-		DatabaseURL: getEnv("DATABASE_URL", ""),
-		Port:        getEnv("BACKEND_PORT", "8080"),
-		CORSOrigin:  getEnv("CORS_ORIGIN", "http://localhost:5173"),
+		DatabaseURL:   getEnv("DATABASE_URL", ""),
+		Port:          getEnv("BACKEND_PORT", "8080"),
+		CORSOrigin:    getEnv("CORS_ORIGIN", "http://localhost:5173"),
+		ServerKeyPath: getEnv("SERVER_KEY_PATH", ".keys/server_private.pem"),
 	}
 
 	if cfg.DatabaseURL == "" {
