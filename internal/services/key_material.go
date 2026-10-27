@@ -2,13 +2,18 @@ package services
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"fmt"
 )
 
 const maxEncryptedPrivateKeysSize = 16 * 1024
+
+var ErrInvalidChallengeSignature = errors.New("firma del desafío no válida")
 
 type PrivateKeyBundle struct {
 	Version    int16
@@ -109,4 +114,44 @@ func validateRSAPublicKey(value string) (string, []byte, error) {
 // Decodifica Base64 rechazando caracteres o rellenos no válidos.
 func decodeBase64(value string) ([]byte, error) {
 	return base64.StdEncoding.Strict().DecodeString(value)
+}
+
+// Verifica una firma RSA-PSS realizada sobre el desafío recibido.
+func verifyChallengeSignature(
+	encodedPublicKey string,
+	challenge []byte,
+	encodedSignature string,
+) error {
+	_, publicKeyDER, err := validateRSAPublicKey(encodedPublicKey)
+	if err != nil {
+		return ErrInvalidChallengeSignature
+	}
+
+	parsed, err := x509.ParsePKIXPublicKey(publicKeyDER)
+	if err != nil {
+		return ErrInvalidChallengeSignature
+	}
+	publicKey := parsed.(*rsa.PublicKey)
+
+	signature, err := decodeBase64(encodedSignature)
+	if err != nil || len(signature) != publicKey.Size() {
+		return ErrInvalidChallengeSignature
+	}
+
+	digest := sha256.Sum256(challenge)
+	err = rsa.VerifyPSS(
+		publicKey,
+		crypto.SHA256,
+		digest[:],
+		signature,
+		&rsa.PSSOptions{
+			SaltLength: 32,
+			Hash:       crypto.SHA256,
+		},
+	)
+	if err != nil {
+		return ErrInvalidChallengeSignature
+	}
+
+	return nil
 }
