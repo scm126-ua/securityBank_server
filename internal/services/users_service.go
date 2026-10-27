@@ -13,6 +13,7 @@ import (
 var (
 	ErrInvalidEmail    = errors.New("email no válido")
 	ErrInvalidPassword = errors.New("contraseña no válida")
+	ErrInvalidDNI      = errors.New("DNI no válido")
 	ErrEmailExists     = errors.New("el email ya está registrado")
 )
 
@@ -61,8 +62,9 @@ func (s *UserService) Register(
 	dni string,
 ) (*models.User, error) {
 
-	// Normalizamos y validamos el email y la contraseña
+	// Normalizamos y validamos el email, la contraseña y el DNI
 	_email := strings.ToLower(strings.TrimSpace(email))
+	_dni := strings.ToUpper(strings.TrimSpace(dni))
 
 	parsedEmail, err := mail.ParseAddress(_email)
 	if err != nil || parsedEmail.Address != _email {
@@ -71,6 +73,10 @@ func (s *UserService) Register(
 
 	if len(password) < 8 || len(password) > 72 {
 		return nil, ErrInvalidPassword
+	}
+
+	if !ValidateSpanishDNI(_dni) {
+		return nil, ErrInvalidDNI
 	}
 
 	// Comprobamos que el email no esté ya registrado
@@ -96,7 +102,7 @@ func (s *UserService) Register(
 	user := &models.User{
 		Email:        _email,
 		Name:         strings.TrimSpace(name + " " + surname),
-		DNI:          strings.ToUpper(strings.TrimSpace(dni)),
+		DNI:          _dni,
 		Salt:         salt,
 		PasswordHash: passwordHash,
 		Role:         "CLIENT",

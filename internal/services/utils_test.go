@@ -39,3 +39,24 @@ func TestSpanishAccountCheckDigits(t *testing.T) {
 		t.Fatal("el IBAN oficial de ejemplo debería ser válido")
 	}
 }
+
+// Comprueba DNIs válidos, normalizados y con formatos incorrectos.
+func TestValidateSpanishDNI(t *testing.T) {
+	tests := []struct {
+		dni   string
+		valid bool
+	}{
+		{dni: "12345678Z", valid: true},
+		{dni: " 12345678z ", valid: true},
+		{dni: "12345678A", valid: false},
+		{dni: "1234", valid: false},
+		{dni: "ABCDEFGHZ", valid: false},
+	}
+
+	for _, test := range tests {
+		if result := ValidateSpanishDNI(test.dni); result != test.valid {
+			t.Errorf("ValidateSpanishDNI(%q) = %v; se esperaba %v",
+				test.dni, result, test.valid)
+		}
+	}
+}

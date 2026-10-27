@@ -86,6 +86,23 @@ func isNumeric(value string) bool {
 	return true
 }
 
+// Comprueba el formato y la letra de control de un DNI español.
+func ValidateSpanishDNI(dni string) bool {
+	dni = strings.ToUpper(strings.TrimSpace(dni))
+
+	if len(dni) != 9 || !isNumeric(dni[:8]) {
+		return false
+	}
+
+	number, err := strconv.Atoi(dni[:8])
+	if err != nil {
+		return false
+	}
+
+	const controlLetters = "TRWAGMYFPDXBNJZSQVHLCKE"
+	return dni[8] == controlLetters[number%len(controlLetters)]
+}
+
 // ValidateSpanishIBAN comprueba los dígitos de control de un IBAN español.
 func ValidateSpanishIBAN(iban string) bool {
 	iban = strings.ToUpper(strings.ReplaceAll(iban, " ", ""))

@@ -112,6 +112,11 @@ func Register(
 				"error": "La contraseña no es válida",
 			})
 			return
+		case errors.Is(err, services.ErrInvalidDNI):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "El DNI no es válido",
+			})
+			return
 		case errors.Is(err, services.ErrEmailExists):
 			c.JSON(http.StatusConflict, gin.H{
 				"error": "El correo electrónico ya está registrado",
