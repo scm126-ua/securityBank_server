@@ -76,7 +76,6 @@ func main() {
 	challengeService := services.NewAuthChallengeService()
 
 	// Login y registro
-	api.POST("/login", handlers.Login(userService))
 	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService))
 	api.POST("/login/verify", handlers.VerifyLogin(userService, challengeService))
 	api.POST("/register", handlers.Register(userService))

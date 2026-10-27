@@ -44,45 +44,6 @@ type PrivateKeyBundleRequest struct {
 	Ciphertext string `json:"ciphertext" binding:"required"`
 }
 
-func Login(userService *services.UserService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var input LoginRequest
-
-		if err := c.ShouldBindJSON(&input); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Datos de login inválidos",
-			})
-			return
-		}
-
-		user, err := userService.Login(
-			c.Request.Context(),
-			input.Email,
-			input.Password,
-		)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "Correo o contraseña incorrectos",
-			})
-			return
-		}
-
-		tokenString, err := createJWT(user.ID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "No se pudo generar el token",
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ok",
-			"token":  tokenString,
-			"user":   user,
-		})
-	}
-}
-
 // Inicia un acceso después de comprobar la contraseña y entrega un desafío.
 func StartLogin(
 	userService *services.UserService,
