@@ -23,8 +23,13 @@ type User struct {
 	// NULL hasta completar el registro criptográfico.
 	PublicKey *string `gorm:"column:public_key" json:"public_key"`
 	// Clave pública para verificar las firmas digitales del usuario.
-	SigningPublicKey *string   `gorm:"column:signing_public_key" json:"signing_public_key"`
-	CreatedAt        time.Time `gorm:"column:created_at;default:CURRENT_TIMESTAMP;autoCreateTime:false" json:"created_at"`
+	SigningPublicKey      *string   `gorm:"column:signing_public_key" json:"signing_public_key"`
+	EncryptedPrivateKeys  []byte    `gorm:"column:encrypted_private_keys" json:"-"`
+	PrivateKeysSalt       []byte    `gorm:"column:private_keys_salt" json:"-"`
+	PrivateKeysNonce      []byte    `gorm:"column:private_keys_nonce" json:"-"`
+	PrivateKeysIterations *int      `gorm:"column:private_keys_iterations" json:"-"`
+	PrivateKeysVersion    *int16    `gorm:"column:private_keys_version" json:"-"`
+	CreatedAt             time.Time `gorm:"column:created_at;default:CURRENT_TIMESTAMP;autoCreateTime:false" json:"created_at"`
 
 	// Relaciones
 	AccountUsers   []AccountUser    `gorm:"foreignKey:UserID" json:"account_users,omitempty"`   // cuentas del usuario (N:M)
