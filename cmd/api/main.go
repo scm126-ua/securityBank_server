@@ -86,6 +86,7 @@ func main() {
 	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService))
 	api.POST("/login/verify", handlers.VerifyLogin(userService, challengeService, serverPrivateKey))
 	api.POST("/register", handlers.Register(userService))
+	api.GET("/getUserByEmail", handlers.GetUserByEmail(userService))
 
 	// Cuentas bancarias
 	protected := api.Group("/")

@@ -33,6 +33,10 @@ type User struct {
 	PrivateKeysVersion    *int16    `gorm:"column:private_keys_version" json:"-"`
 	CreatedAt             time.Time `gorm:"column:created_at;default:CURRENT_TIMESTAMP;autoCreateTime:false" json:"created_at"`
 
+	FailedLoginAttempts    int        `gorm:"not null;default:0" json:"-"`
+	LastFailedLoginAttempt *time.Time `gorm:"column:last_failed_login_attempt" json:"-"`
+	LockedUntil            *time.Time `gorm:"column:locked_until" json:"-"`
+	
 	// Relaciones
 	AccountUsers   []AccountUser    `gorm:"foreignKey:UserID" json:"account_users,omitempty"`   // cuentas del usuario (N:M)
 	Documents      []Document       `gorm:"foreignKey:OwnerID" json:"documents,omitempty"`      // documentos de los que es propietario

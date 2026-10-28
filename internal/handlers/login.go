@@ -34,6 +34,10 @@ type RegisterRequest struct {
 	PrivateKeyBundle PrivateKeyBundleRequest `json:"private_key_bundle" binding:"required"`
 }
 
+type GetUserRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
 type PrivateKeyBundleRequest struct {
 	Version    int16  `json:"version" binding:"required"`
 	Algorithm  string `json:"algorithm" binding:"required"`
@@ -141,6 +145,41 @@ func createJWT(userID int64, serverPrivateKey *rsa.PrivateKey) (string, error) {
 	})
 
 	return token.SignedString(serverPrivateKey)
+}
+
+func TemporalLoginBlock(userSercice *services.UserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+
+	}
+}
+
+func GetUserByEmail(userService *services.UserService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var input GetUserRequest
+
+		// Aqui extraemos los datos del registro y los validamos
+		if err := c.ShouldBindJSON(&input); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Datos de registro inválidos " + err.Error(),
+			})
+			return
+		}
+
+		user, err := userService.FindUserByEmail(c, input.Email)
+
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{
+				"status":  "error",
+				"message": "Usuario no encontrado",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ok",
+			"user":   user,
+		})
+	}
 }
 
 func Register(userService *services.UserService) gin.HandlerFunc {

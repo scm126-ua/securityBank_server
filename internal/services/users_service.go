@@ -26,6 +26,11 @@ type UserService struct {
 	serverPrivateKey *rsa.PrivateKey
 }
 
+func (s *UserService) FindUserByEmail(ctx context.Context,
+	email string) (*models.User, error) {
+	return s.repo.FindByEmail(ctx, email)
+}
+
 func NewUserService(
 	repo *repositories.UserRepository,
 	serverPrivateKey *rsa.PrivateKey,
@@ -59,6 +64,13 @@ func (s *UserService) Login(
 	}
 
 	return nil, errors.New("La contraseña no coincide")
+
+}
+
+func (s *UserService) TemporalLoginBlock(
+	ctx context.Context,
+	email string,
+) {
 
 }
 
