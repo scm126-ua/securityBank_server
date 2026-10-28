@@ -20,6 +20,15 @@ type AccountRepository struct {
 	db *gorm.DB
 }
 
+type AccountOwnershipRecord struct {
+	HolderID   int64  `gorm:"column:holder_id"`
+	HolderName string `gorm:"column:holder_name"`
+	HolderDNI  string `gorm:"column:holder_dni"`
+	AccountID  int64  `gorm:"column:account_id"`
+	IBAN       string `gorm:"column:iban"`
+	Role       string `gorm:"column:role"`
+}
+
 func NewAccountRepository(db *gorm.DB) *AccountRepository {
 	return &AccountRepository{db: db}
 }
@@ -64,6 +73,44 @@ func (r *AccountRepository) FindByUser(
 	}
 
 	return accounts, nil
+}
+
+// Obtiene los datos de una cuenta únicamente cuando el usuario es uno de sus titulares.
+func (r *AccountRepository) FindOwnership(
+	ctx context.Context,
+	userID int64,
+	accountID int64,
+) (*AccountOwnershipRecord, error) {
+	var ownership AccountOwnershipRecord
+
+	err := r.db.WithContext(ctx).
+		Table("account_users").
+		Select(`
+			users.id AS holder_id,
+			users.name AS holder_name,
+			users.dni AS holder_dni,
+			accounts.id AS account_id,
+			accounts.iban AS iban,
+			account_users.role AS role
+		`).
+		Joins("JOIN users ON users.id = account_users.user_id").
+		Joins("JOIN accounts ON accounts.id = account_users.account_id").
+		Where("account_users.user_id = ?", userID).
+		Where("account_users.account_id = ?", accountID).
+		Where("account_users.role IN ?", []string{
+			models.AccountRoleOwner,
+			models.AccountRoleCoOwner,
+		}).
+		Take(&ownership).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAccountNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &ownership, nil
 }
 
 func (r *AccountRepository) Create(

@@ -4,6 +4,7 @@ package services
 
 import (
 	"context"
+	"crypto/rsa"
 
 	"securityBank_server/internal/models"
 	"securityBank_server/internal/repositories"
@@ -16,13 +17,18 @@ var (
 )
 
 type AccountService struct {
-	repo *repositories.AccountRepository
+	repo             *repositories.AccountRepository
+	serverPrivateKey *rsa.PrivateKey
 }
 
 func NewAccountService(
 	repo *repositories.AccountRepository,
+	serverPrivateKey *rsa.PrivateKey,
 ) *AccountService {
-	return &AccountService{repo: repo}
+	return &AccountService{
+		repo:             repo,
+		serverPrivateKey: serverPrivateKey,
+	}
 }
 
 // Crear una cuenta
@@ -62,4 +68,28 @@ func (s *AccountService) CloseAccount(
 	accountID int64,
 ) (*models.Account, error) {
 	return s.repo.Close(ctx, userID, accountID)
+}
+
+// Genera un certificado firmado después de comprobar la titularidad de la cuenta.
+func (s *AccountService) CreateOwnershipCertificate(
+	ctx context.Context,
+	userID int64,
+	accountID int64,
+) (SignedAccountOwnershipCertificate, error) {
+	ownership, err := s.repo.FindOwnership(ctx, userID, accountID)
+	if err != nil {
+		return SignedAccountOwnershipCertificate{}, err
+	}
+
+	return CreateAccountOwnershipCertificate(
+		s.serverPrivateKey,
+		AccountOwnershipData{
+			HolderID:   ownership.HolderID,
+			HolderName: ownership.HolderName,
+			HolderDNI:  ownership.HolderDNI,
+			AccountID:  ownership.AccountID,
+			IBAN:       ownership.IBAN,
+			Role:       ownership.Role,
+		},
+	)
 }
