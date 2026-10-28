@@ -157,6 +157,14 @@ func createAccount(
 	if err := tx.Create(&accountUser).Error; err != nil {
 		return nil, err
 	}
+	if err := createAccountAuditEvent(tx, &models.AccountAuditEvent{
+		UserID:    userID,
+		AccountID: &account.ID,
+		Action:    models.AccountAuditActionCreate,
+		Result:    models.AccountAuditResultSuccess,
+	}); err != nil {
+		return nil, err
+	}
 
 	return account, nil
 }
@@ -202,12 +210,71 @@ func (r *AccountRepository) Close(
 		}
 
 		account.Status = models.AccountStatusClosed
-		return tx.Model(&account).Update("status", account.Status).Error
+		if err := tx.Model(&account).Update("status", account.Status).Error; err != nil {
+			return err
+		}
+
+		return createAccountAuditEvent(tx, &models.AccountAuditEvent{
+			UserID:    userID,
+			AccountID: &account.ID,
+			Action:    models.AccountAuditActionClose,
+			Result:    models.AccountAuditResultSuccess,
+		})
 	})
 
 	if err != nil {
+		reason, shouldAudit := accountCloseDenialReason(err)
+		if shouldAudit {
+			auditErr := r.recordDeniedAccountClose(
+				ctx,
+				userID,
+				accountID,
+				reason,
+			)
+			if auditErr != nil {
+				return nil, errors.Join(err, auditErr)
+			}
+		}
 		return nil, err
 	}
 
 	return &account, nil
+}
+
+// Inserta un evento de auditoría utilizando la transacción de la operación bancaria.
+func createAccountAuditEvent(tx *gorm.DB, event *models.AccountAuditEvent) error {
+	return tx.Create(event).Error
+}
+
+// Traduce los rechazos esperados a códigos de auditoría sin datos sensibles.
+func accountCloseDenialReason(err error) (string, bool) {
+	switch {
+	case errors.Is(err, ErrAccountNotFound):
+		return models.AccountAuditReasonNotFound, true
+	case errors.Is(err, ErrAccountHasBalance):
+		return models.AccountAuditReasonNonZero, true
+	case errors.Is(err, ErrAccountAlreadyClosed):
+		return models.AccountAuditReasonAlreadyClosed, true
+	default:
+		return "", false
+	}
+}
+
+// Guarda un cierre rechazado después de que la transacción principal haya terminado.
+func (r *AccountRepository) recordDeniedAccountClose(
+	ctx context.Context,
+	userID int64,
+	accountID int64,
+	reason string,
+) error {
+	return createAccountAuditEvent(
+		r.db.WithContext(ctx),
+		&models.AccountAuditEvent{
+			UserID:    userID,
+			AccountID: &accountID,
+			Action:    models.AccountAuditActionClose,
+			Result:    models.AccountAuditResultDenied,
+			Reason:    &reason,
+		},
+	)
 }
