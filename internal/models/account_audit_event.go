@@ -15,6 +15,13 @@ const (
 	AccountAuditResultError   = "ERROR"
 )
 
+// Códigos permitidos para explicar un cierre rechazado.
+const (
+	AccountAuditReasonNotFound      = "ACCOUNT_NOT_FOUND"
+	AccountAuditReasonNonZero       = "NON_ZERO_BALANCE"
+	AccountAuditReasonAlreadyClosed = "ALREADY_CLOSED"
+)
+
 // Representa un evento inmutable de creación o cierre de una cuenta.
 type AccountAuditEvent struct {
 	ID        int64     `gorm:"column:id;primaryKey" json:"id"`
