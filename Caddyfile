@@ -1,0 +1,12 @@
+# Punto de entrada HTTPS único para el frontend y la API.
+https://localhost:8443 {
+	tls internal
+
+	handle /api/* {
+		reverse_proxy backend:8080
+	}
+
+	handle {
+		reverse_proxy frontend:5173
+	}
+}

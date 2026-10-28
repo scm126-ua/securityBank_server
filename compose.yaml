@@ -5,8 +5,8 @@
 #   docker compose up --build   -> construye las imágenes, aplica las migraciones y arranca los servicios
 #   docker compose down         -> detiene los servicios (los datos de PostgreSQL se conservan)
 #
-# Los puertos se publican solo en 127.0.0.1: los servicios son accesibles desde
-# este ordenador (localhost), pero no desde otros equipos de la red.
+# El acceso web se realiza mediante HTTPS en localhost:8443. PostgreSQL también
+# se publica en localhost para permitir su uso desde DBeaver.
 
 name: securitybank
 
@@ -51,9 +51,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:?Define DATABASE_URL en .env}
       BACKEND_PORT: ${BACKEND_PORT:-8080}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
-    ports:
-      - "127.0.0.1:${BACKEND_PORT:-8080}:${BACKEND_PORT:-8080}"
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://localhost:8443}
     volumes:
       # El código del host se monta en el contenedor y Air detecta los cambios.
       - .:/app
@@ -70,13 +68,27 @@ services:
     environment:
       # Activa el sondeo de ficheros en Vite (necesario en Docker sobre Windows).
       CHOKIDAR_USEPOLLING: "true"
-    ports:
-      - "127.0.0.1:5173:5173"
     volumes:
       # El código del host se monta en el contenedor y Vite recarga en caliente.
       - ../securityBank_client/securityBank_client:/app
       # node_modules se queda dentro del contenedor (dependencias compiladas para Linux).
       - /app/node_modules
 
+  # Punto de entrada HTTPS para el navegador. La CA local se conserva en un
+  # volumen y puede instalarse como autoridad de confianza en el equipo host.
+  proxy:
+    image: caddy:2.11.7-alpine
+    ports:
+      - "127.0.0.1:${HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+      - frontend
+
 volumes:
   postgres-data:
+  caddy-data:
+  caddy-config:

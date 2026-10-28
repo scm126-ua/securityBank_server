@@ -122,3 +122,44 @@ func FindUserAccounts(accountService *services.AccountService) gin.HandlerFunc {
 		})
 	}
 }
+
+// Entrega un certificado firmado únicamente al titular autenticado de la cuenta.
+func CreateOwnershipCertificate(accountService *services.AccountService) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || accountID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Identificador de cuenta inválido",
+			})
+			return
+		}
+
+		userID, exists := c.Get("userID")
+		if !exists {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error": "Usuario no autenticado",
+			})
+			return
+		}
+
+		certificate, err := accountService.CreateOwnershipCertificate(
+			c.Request.Context(),
+			userID.(int64),
+			accountID,
+		)
+		switch {
+		case errors.Is(err, services.ErrAccountNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "Cuenta no encontrada",
+			})
+			return
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "No se pudo generar el certificado de titularidad",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, certificate)
+	}
+}

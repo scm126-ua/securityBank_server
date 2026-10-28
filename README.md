@@ -8,7 +8,7 @@ Backend de SecurityBank (Go + Gin + GORM) y entorno de desarrollo local con Dock
 - **Docker Desktop** instalado y en ejecución.
 - **Git**, con los dos repositorios clonados uno al lado del otro (ver estructura).
 - **DBeaver** (opcional) para consultar la base de datos.
-- Puertos libres en tu ordenador: **5173** (frontend), **8080** (backend) y **5432** (PostgreSQL).
+- Puertos libres en tu ordenador: **8443** (aplicación HTTPS) y **5432** (PostgreSQL).
   Si tienes PostgreSQL instalado en Windows, su servicio ocupa el 5432: detenlo o cambia
   `POSTGRES_HOST_PORT` en `.env` (ver más abajo).
 
@@ -28,7 +28,8 @@ SecurityBank/
     │   ├── handlers/                 # Manejadores HTTP (endpoints de salud)
     │   └── models/                   # Modelos GORM de las seis tablas
     ├── database/migrations/          # Migraciones SQL: fuente de verdad de la base de datos
-    ├── compose.yaml                  # Servicios frontend, backend, db y migrate
+    ├── Caddyfile                     # Proxy HTTPS para el frontend y la API
+    ├── compose.yaml                  # Servicios frontend, backend, proxy, db y migrate
     ├── Dockerfile                    # Imagen de desarrollo del backend (Go + Air)
     ├── .air.toml                     # Recarga automática del backend
     └── .env.example                  # Plantilla de variables de entorno
@@ -49,8 +50,9 @@ cp .env.example .env
 | `POSTGRES_PASSWORD`  | Contraseña de PostgreSQL. Pon una propia, solo para desarrollo           |
 | `POSTGRES_HOST_PORT` | Puerto de tu ordenador para DBeaver (`5432`; usa `5433` si está ocupado) |
 | `DATABASE_URL`       | Conexión del backend. Se construye con las variables anteriores          |
-| `BACKEND_PORT`       | Puerto del backend (`8080`)                                              |
-| `CORS_ORIGIN`        | Origen del frontend permitido por CORS (`http://localhost:5173`)         |
+| `BACKEND_PORT`       | Puerto interno del backend (`8080`)                                      |
+| `HTTPS_PORT`         | Puerto HTTPS público del proxy (`8443`)                                  |
+| `CORS_ORIGIN`        | Origen del frontend permitido por CORS (`https://localhost:8443`)        |
 
 - `.env` está excluido de Git: no subas nunca contraseñas ni credenciales reales.
 - PostgreSQL solo aplica `POSTGRES_USER` y `POSTGRES_PASSWORD` la primera vez que crea el
@@ -65,11 +67,14 @@ docker compose up -d --build     # lo mismo, en segundo plano
 docker compose ps                # estado de los contenedores
 ```
 
-| Servicio   | URL                                 |
-|------------|-------------------------------------|
-| Frontend   | http://localhost:5173               |
-| Backend    | http://localhost:8080/api/health    |
-| PostgreSQL | localhost:5432                      |
+| Servicio       | URL                                       |
+|----------------|-------------------------------------------|
+| Aplicación     | https://localhost:8443                    |
+| Salud de la API | https://localhost:8443/api/health        |
+| PostgreSQL     | localhost:5432                            |
+
+Caddy genera un certificado local para el entorno de desarrollo. El navegador puede mostrar
+un aviso de seguridad hasta que se confíe en su autoridad certificadora local.
 
 Al guardar cambios, Vite recarga el frontend y Air recompila el backend automáticamente.
 
@@ -120,9 +125,9 @@ si faltan tablas, **503** con `"schema":"incomplete"` (el detalle aparece en los
 Desde el navegador o desde la terminal:
 
 ```sh
-curl.exe http://localhost:8080/api/health       # PowerShell (curl a secas es otro comando)
-curl.exe http://localhost:8080/api/health/db
-curl http://localhost:8080/api/health/db        # Git Bash
+curl.exe -k https://localhost:8443/api/health       # PowerShell (curl a secas es otro comando)
+curl.exe -k https://localhost:8443/api/health/db
+curl --insecure https://localhost:8443/api/health/db # Git Bash
 ```
 
 ## Base de datos
@@ -156,7 +161,7 @@ vacía y `migrate` aplica todas las migraciones. Para comprobarlo:
 ```sh
 docker compose logs migrate               # debe aparecer: 1/u initial_schema
 docker compose run --rm migrate version   # versión actual del esquema
-curl.exe http://localhost:8080/api/health/db
+curl.exe -k https://localhost:8443/api/health/db
 ```
 
 Para empezar de cero (se pierden todos los datos): `docker compose down -v` y
