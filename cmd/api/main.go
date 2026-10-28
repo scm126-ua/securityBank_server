@@ -79,7 +79,7 @@ func main() {
 	userService := services.NewUserService(userRepository, serverPrivateKey)
 
 	accountRepository := repositories.NewAccountRepository(db)
-	accountService := services.NewAccountService(accountRepository)
+	accountService := services.NewAccountService(accountRepository, serverPrivateKey)
 	challengeService := services.NewAuthChallengeService()
 
 	// Login y registro
@@ -94,6 +94,7 @@ func main() {
 	protected.GET("/accounts", handlers.FindUserAccounts(accountService))
 	protected.POST("/accounts", handlers.CreateAccount(accountService))
 	protected.PATCH("/accounts/:id/close", handlers.CloseAccount(accountService))
+	protected.GET("/accounts/:id/ownership-certificate", handlers.CreateOwnershipCertificate(accountService))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
