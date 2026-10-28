@@ -78,5 +78,21 @@ services:
       # node_modules se queda dentro del contenedor (dependencias compiladas para Linux).
       - /app/node_modules
 
+  # Punto de entrada HTTPS para el navegador. La CA local se conserva en un
+  # volumen y puede instalarse como autoridad de confianza en el equipo host.
+  proxy:
+    image: caddy:2.11.7-alpine
+    ports:
+      - "127.0.0.1:${HTTPS_PORT:-8443}:8443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+      - frontend
+
 volumes:
   postgres-data:
+  caddy-data:
+  caddy-config:
