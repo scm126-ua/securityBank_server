@@ -157,6 +157,14 @@ func createAccount(
 	if err := tx.Create(&accountUser).Error; err != nil {
 		return nil, err
 	}
+	if err := createAccountAuditEvent(tx, &models.AccountAuditEvent{
+		UserID:    userID,
+		AccountID: &account.ID,
+		Action:    models.AccountAuditActionCreate,
+		Result:    models.AccountAuditResultSuccess,
+	}); err != nil {
+		return nil, err
+	}
 
 	return account, nil
 }
@@ -202,7 +210,16 @@ func (r *AccountRepository) Close(
 		}
 
 		account.Status = models.AccountStatusClosed
-		return tx.Model(&account).Update("status", account.Status).Error
+		if err := tx.Model(&account).Update("status", account.Status).Error; err != nil {
+			return err
+		}
+
+		return createAccountAuditEvent(tx, &models.AccountAuditEvent{
+			UserID:    userID,
+			AccountID: &account.ID,
+			Action:    models.AccountAuditActionClose,
+			Result:    models.AccountAuditResultSuccess,
+		})
 	})
 
 	if err != nil {
@@ -210,4 +227,9 @@ func (r *AccountRepository) Close(
 	}
 
 	return &account, nil
+}
+
+// Inserta un evento de auditoría utilizando la transacción de la operación bancaria.
+func createAccountAuditEvent(tx *gorm.DB, event *models.AccountAuditEvent) error {
+	return tx.Create(event).Error
 }
