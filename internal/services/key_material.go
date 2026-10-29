@@ -16,6 +16,7 @@ import (
 const maxEncryptedPrivateKeysSize = 16 * 1024
 
 var ErrInvalidChallengeSignature = errors.New("firma del desafío no válida")
+var errInvalidUserSignature = errors.New("firma del usuario no válida")
 var ErrKeyMaterialUnavailable = errors.New("el usuario no tiene claves criptográficas")
 
 type PrivateKeyBundle struct {
@@ -125,23 +126,40 @@ func verifyChallengeSignature(
 	challenge []byte,
 	encodedSignature string,
 ) error {
-	_, publicKeyDER, err := validateRSAPublicKey(encodedPublicKey)
+	signature, err := decodeBase64(encodedSignature)
 	if err != nil {
 		return ErrInvalidChallengeSignature
+	}
+
+	if err := verifyUserSignature(encodedPublicKey, challenge, signature); err != nil {
+		return ErrInvalidChallengeSignature
+	}
+
+	return nil
+}
+
+// Verifica una firma RSA-PSS-SHA256 (sal de 32 bytes) creada con la clave de firma de un usuario.
+func verifyUserSignature(
+	encodedPublicKey string,
+	message []byte,
+	signature []byte,
+) error {
+	_, publicKeyDER, err := validateRSAPublicKey(encodedPublicKey)
+	if err != nil {
+		return errInvalidUserSignature
 	}
 
 	parsed, err := x509.ParsePKIXPublicKey(publicKeyDER)
 	if err != nil {
-		return ErrInvalidChallengeSignature
+		return errInvalidUserSignature
 	}
 	publicKey := parsed.(*rsa.PublicKey)
 
-	signature, err := decodeBase64(encodedSignature)
-	if err != nil || len(signature) != publicKey.Size() {
-		return ErrInvalidChallengeSignature
+	if len(signature) != publicKey.Size() {
+		return errInvalidUserSignature
 	}
 
-	digest := sha256.Sum256(challenge)
+	digest := sha256.Sum256(message)
 	err = rsa.VerifyPSS(
 		publicKey,
 		crypto.SHA256,
@@ -153,7 +171,7 @@ func verifyChallengeSignature(
 		},
 	)
 	if err != nil {
-		return ErrInvalidChallengeSignature
+		return errInvalidUserSignature
 	}
 
 	return nil
