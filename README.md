@@ -180,6 +180,9 @@ Otras medidas:
   errores). Un *trigger* impide `UPDATE`, `DELETE` y `TRUNCATE`. Si una descarga no se puede
   auditar, no se entrega.
 - Todas las respuestas de `/api` llevan `Cache-Control: no-store` y `X-Content-Type-Options: nosniff`.
+- Caddy envía una CSP que solo permite scripts del propio origen y exige Trusted Types, además
+  de otras cabeceras de seguridad. Un XSS no puede ejecutar código inyectado, que es lo que
+  daría acceso a las claves privadas en memoria.
 
 ### Endpoints (requieren JWT)
 
