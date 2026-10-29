@@ -101,8 +101,10 @@ func main() {
 	api.POST("/register", handlers.Register(userService))
 
 	// Cuentas bancarias
+	revokedTokens := services.NewRevokedTokens()
 	protected := api.Group("/")
-	protected.Use(middleware.AuthMiddleware(&serverPrivateKey.PublicKey))
+	protected.Use(middleware.AuthMiddleware(&serverPrivateKey.PublicKey, revokedTokens))
+	protected.POST("/logout", handlers.Logout(revokedTokens))
 
 	protected.GET("/accounts", handlers.FindUserAccounts(accountService))
 	protected.POST("/accounts", handlers.CreateAccount(accountService))

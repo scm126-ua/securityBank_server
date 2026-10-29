@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
 	"errors"
@@ -11,7 +12,11 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"securityBank_server/internal/services"
+	"securityBank_server/middleware"
 )
+
+// Duración del token de sesión y de la cookie que lo transporta.
+const sessionDuration = time.Hour
 
 type LoginRequest struct {
 	Email   string `json:"email" binding:"required"`
@@ -124,23 +129,45 @@ func VerifyLogin(
 			return
 		}
 
+		setSessionCookie(c, tokenString, int(sessionDuration.Seconds()))
 		c.JSON(http.StatusOK, gin.H{
 			"status": "ok",
-			"token":  tokenString,
 			"user":   user,
 		})
 	}
 }
 
-// Genera un token de sesión de una hora para el usuario verificado.
+// Cierra la sesión: revoca el token hasta su caducidad y borra la cookie.
+func Logout(revokedTokens *services.RevokedTokens) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		revokedTokens.Revoke(c.GetString("tokenID"), c.GetTime("tokenExpiresAt"))
+		setSessionCookie(c, "", -1)
+		c.Status(http.StatusNoContent)
+	}
+}
+
+// Genera un token de sesión de una hora con un identificador para poder revocarlo.
 func createJWT(userID int64, serverPrivateKey *rsa.PrivateKey) (string, error) {
+	tokenID := make([]byte, 16)
+	if _, err := rand.Read(tokenID); err != nil {
+		return "", err
+	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
 		"user_id": userID,
+		"jti":     base64.RawURLEncoding.EncodeToString(tokenID),
 		"iat":     time.Now().Unix(),
-		"exp":     time.Now().Add(time.Hour).Unix(),
+		"exp":     time.Now().Add(sessionDuration).Unix(),
 	})
 
 	return token.SignedString(serverPrivateKey)
+}
+
+// Guarda el token en una cookie que JavaScript no puede leer (HttpOnly), que solo
+// viaja por HTTPS (Secure), únicamente a la API y nunca desde otros sitios (SameSite).
+func setSessionCookie(c *gin.Context, token string, maxAge int) {
+	c.SetSameSite(http.SameSiteStrictMode)
+	c.SetCookie(middleware.SessionCookieName, token, maxAge, "/api", "", true, true)
 }
 
 func Register(userService *services.UserService) gin.HandlerFunc {

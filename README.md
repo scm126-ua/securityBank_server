@@ -247,8 +247,10 @@ FROM document_audit_events ORDER BY id DESC;
   autenticación; la que protege las claves privadas nunca sale del navegador. Aun así, un
   servidor malicioso podría intentar adivinar contraseñas débiles a partir de la clave de
   autenticación, y la política de contraseñas solo puede comprobarse en el cliente.
-- El JWT se guarda en `localStorage`. Una cookie `HttpOnly` y `SameSite`, junto con una
-  política CSP en Caddy, reducirían el impacto de un XSS.
+- La sesión viaja en una cookie `HttpOnly`, `Secure` y `SameSite=Strict` limitada a `/api`,
+  así que JavaScript no puede leer el token. Cerrar sesión (o recargar la página) lo revoca,
+  pero las revocaciones se guardan en memoria: si el backend se reinicia, el token de una
+  sesión cerrada vuelve a valer hasta que caduca (una hora como máximo).
 
 ## Base de datos
 
