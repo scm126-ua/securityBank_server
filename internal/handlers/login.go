@@ -4,6 +4,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -122,6 +123,18 @@ func VerifyLogin(
 			return
 		}
 
+		if err := userService.ResetFailedLoginAttempts(
+			c.Request.Context(),
+			user.ID,
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "No se pudo actualizar el estado de autenticación",
+			})
+			return
+		}
+
+		// Continúa con la respuesta de login exitoso.
+
 		tokenString, err := createJWT(user.ID, serverPrivateKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo generar el token"})
@@ -147,25 +160,66 @@ func createJWT(userID int64, serverPrivateKey *rsa.PrivateKey) (string, error) {
 	return token.SignedString(serverPrivateKey)
 }
 
-func TemporalLoginBlock(userSercice *services.UserService) gin.HandlerFunc {
+func AddFailedLoginAttempt(userService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		fmt.Println("[AddFailedLoginAttempt] Handler ejecutado")
 
+		var input GetUserRequest
+
+		if err := c.ShouldBindJSON(&input); err != nil {
+			fmt.Println("[AddFailedLoginAttempt] Error leyendo JSON:", err)
+
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  "error",
+				"message": "Petición JSON inválida",
+			})
+			return
+		}
+
+		email := input.Email
+
+		if email == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  "error",
+				"message": "El email es obligatorio",
+			})
+			return
+		}
+
+		user, err := userService.AddFailedLoginAttempt(c, email)
+		if err != nil {
+			fmt.Println("[AddFailedLoginAttempt] Error:", err)
+
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"status":  "error",
+				"message": "No se ha podido registrar el intento",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"message": "Intento de login aplicado correctamente",
+			"user":    user,
+		})
 	}
 }
 
 func GetUserByEmail(userService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var input GetUserRequest
 
-		// Aqui extraemos los datos del registro y los validamos
-		if err := c.ShouldBindJSON(&input); err != nil {
+		// Obtener el email de la query string
+		email := c.Query("email")
+
+		if email == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Datos de registro inválidos " + err.Error(),
+				"status":  "error",
+				"message": "El email es obligatorio",
 			})
 			return
 		}
 
-		user, err := userService.FindUserByEmail(c, input.Email)
+		user, err := userService.FindUserByEmail(c, email)
 
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{
