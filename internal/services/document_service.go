@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"errors"
+	"strconv"
 	"time"
 
 	"securityBank_server/internal/models"
@@ -20,6 +21,14 @@ var (
 	ErrDocumentNotOwner      = repositories.ErrDocumentNotOwner
 	ErrDocumentQuotaExceeded = repositories.ErrDocumentQuotaExceeded
 	ErrDocumentAlreadyExists = repositories.ErrDocumentAlreadyExists
+)
+
+var ErrInvalidRequestSignature = errors.New("la orden no está firmada por el usuario")
+
+// Contexto de la firma de las órdenes de borrado y antigüedad máxima aceptada.
+const (
+	deleteRequestContext = "securitybank-document-delete-v1"
+	signedRequestMaxAge  = 2 * time.Minute
 )
 
 // Límites por usuario: 100 documentos y 100 MiB cifrados.
@@ -242,17 +251,63 @@ func (s *DocumentService) Download(
 	}, nil
 }
 
-// Elimina un documento si el usuario autenticado es su propietario.
+// Elimina un documento si el usuario autenticado es su propietario y ha firmado
+// la orden con su clave privada: un token de sesión robado no basta para borrar.
 func (s *DocumentService) Delete(
 	ctx context.Context,
 	userID int64,
 	publicID string,
+	timestamp string,
+	signature string,
 ) error {
 	if !IsDocumentPublicID(publicID) {
 		return ErrInvalidDocumentID
 	}
 
+	if err := s.verifyDeleteRequest(ctx, userID, publicID, timestamp, signature); err != nil {
+		auditErr := s.recordAudit(
+			ctx, userID, publicID,
+			models.DocumentAuditActionDelete,
+			models.DocumentAuditResultDenied,
+			models.DocumentAuditReasonInvalidSignature,
+		)
+		return errors.Join(ErrInvalidRequestSignature, auditErr)
+	}
+
 	return s.documents.Delete(ctx, userID, publicID)
+}
+
+// Comprueba que la orden de borrado es reciente y está firmada por el usuario.
+func (s *DocumentService) verifyDeleteRequest(
+	ctx context.Context,
+	userID int64,
+	publicID string,
+	timestamp string,
+	encodedSignature string,
+) error {
+	unixTime, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return err
+	}
+	if age := time.Since(time.Unix(unixTime, 0)); age > signedRequestMaxAge || age < -signedRequestMaxAge {
+		return ErrInvalidRequestSignature
+	}
+
+	user, err := s.certifiedUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+
+	signature, err := decodeBase64(encodedSignature)
+	if err != nil {
+		return err
+	}
+
+	return verifyUserSignature(
+		*user.SigningPublicKey,
+		lengthPrefixedPayload(deleteRequestContext, publicID, timestamp),
+		signature,
+	)
 }
 
 // Carga al usuario y comprueba que sus claves públicas siguen certificadas por el servidor.

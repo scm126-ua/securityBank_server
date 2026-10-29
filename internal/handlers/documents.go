@@ -118,7 +118,8 @@ func DownloadDocument(documentService *services.DocumentService) gin.HandlerFunc
 	}
 }
 
-// Elimina un documento del que el usuario autenticado es propietario.
+// Elimina un documento del que el usuario autenticado es propietario. La orden
+// llega firmada en las cabeceras X-Request-Timestamp y X-Request-Signature.
 func DeleteDocument(documentService *services.DocumentService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		userID, exists := c.Get("userID")
@@ -127,7 +128,14 @@ func DeleteDocument(documentService *services.DocumentService) gin.HandlerFunc {
 			return
 		}
 
-		if err := documentService.Delete(c.Request.Context(), userID.(int64), c.Param("id")); err != nil {
+		err := documentService.Delete(
+			c.Request.Context(),
+			userID.(int64),
+			c.Param("id"),
+			c.GetHeader("X-Request-Timestamp"),
+			c.GetHeader("X-Request-Signature"),
+		)
+		if err != nil {
 			respondDocumentError(c, err, "No se pudo eliminar el documento")
 			return
 		}
@@ -145,6 +153,8 @@ func respondDocumentError(c *gin.Context, err error, fallback string) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "El documento cifrado no tiene un formato válido"})
 	case errors.Is(err, services.ErrInvalidDocumentSignature):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "La firma del documento no es válida"})
+	case errors.Is(err, services.ErrInvalidRequestSignature):
+		c.JSON(http.StatusForbidden, gin.H{"error": "La orden no está firmada correctamente"})
 	case errors.Is(err, services.ErrDocumentNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "Documento no encontrado"})
 	case errors.Is(err, services.ErrDocumentNotOwner):

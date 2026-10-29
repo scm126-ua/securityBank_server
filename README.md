@@ -181,6 +181,9 @@ Otras medidas:
   usuario puede hacer 60 peticiones por minuto a `/api/documents` (ráfagas de 30); por encima
   recibe **429**.
 - Quien no tiene acceso recibe **404**, igual que si el documento no existiera.
+- Borrar exige, además de la sesión, una orden firmada con la clave privada del usuario
+  (RSA-PSS sobre la acción, el documento y la hora, válida 2 minutos, en las cabeceras
+  `X-Request-Timestamp` y `X-Request-Signature`). Un token robado no basta para borrar.
 - El cliente fija la identidad del servidor: exige la huella de `SERVER_KEY_FINGERPRINT` o, si
   no está definida, la del primer inicio de sesión (TOFU), y no continúa si la clave cambia.
   Si regeneras `.keys/`, borra los datos del sitio en el navegador.
