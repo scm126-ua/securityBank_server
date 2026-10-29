@@ -5,6 +5,7 @@ package services
 import (
 	"context"
 	"crypto/rsa"
+	"errors"
 
 	"securityBank_server/internal/models"
 	"securityBank_server/internal/repositories"
@@ -71,17 +72,29 @@ func (s *AccountService) CloseAccount(
 }
 
 // Genera un certificado firmado después de comprobar la titularidad de la cuenta.
+// Si la emisión no puede auditarse, el certificado no se entrega.
 func (s *AccountService) CreateOwnershipCertificate(
 	ctx context.Context,
 	userID int64,
 	accountID int64,
 ) (SignedAccountOwnershipCertificate, error) {
 	ownership, err := s.repo.FindOwnership(ctx, userID, accountID)
+	if errors.Is(err, ErrAccountNotFound) {
+		reason := models.AccountAuditReasonNotFound
+		auditErr := s.repo.RecordAuditEvent(ctx, &models.AccountAuditEvent{
+			UserID:    userID,
+			AccountID: &accountID,
+			Action:    models.AccountAuditActionIssueCertificate,
+			Result:    models.AccountAuditResultDenied,
+			Reason:    &reason,
+		})
+		return SignedAccountOwnershipCertificate{}, errors.Join(err, auditErr)
+	}
 	if err != nil {
 		return SignedAccountOwnershipCertificate{}, err
 	}
 
-	return CreateAccountOwnershipCertificate(
+	certificate, err := CreateAccountOwnershipCertificate(
 		s.serverPrivateKey,
 		AccountOwnershipData{
 			HolderID:   ownership.HolderID,
@@ -92,4 +105,20 @@ func (s *AccountService) CreateOwnershipCertificate(
 			Role:       ownership.Role,
 		},
 	)
+	if err != nil {
+		return SignedAccountOwnershipCertificate{}, err
+	}
+
+	err = s.repo.RecordAuditEvent(ctx, &models.AccountAuditEvent{
+		UserID:        userID,
+		AccountID:     &accountID,
+		Action:        models.AccountAuditActionIssueCertificate,
+		Result:        models.AccountAuditResultSuccess,
+		CertificateID: &certificate.Certificate.CertificateID,
+	})
+	if err != nil {
+		return SignedAccountOwnershipCertificate{}, err
+	}
+
+	return certificate, nil
 }

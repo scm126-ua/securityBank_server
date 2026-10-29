@@ -2,6 +2,19 @@
 https://localhost:8443 {
 	tls internal
 
+	# Cabeceras de seguridad. La CSP solo permite scripts del propio origen, así que un
+	# script inyectado (XSS) no se ejecuta ni puede enviar datos a otro sitio.
+	# 'unsafe-inline' en estilos lo necesita Vite en desarrollo para inyectar el CSS.
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'self'; require-trusted-types-for 'script'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+
 	handle /api/* {
 		reverse_proxy backend:8080
 	}

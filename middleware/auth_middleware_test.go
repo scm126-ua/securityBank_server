@@ -11,6 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+
+	"securityBank_server/internal/services"
 )
 
 // Comprueba que únicamente un JWT RS256 válido permite acceder a una ruta protegida.
@@ -24,8 +26,16 @@ func TestAuthenticationRejectsInvalidTokens(t *testing.T) {
 
 	validToken := signTestToken(t, privateKey, jwt.MapClaims{
 		"user_id": 42,
+		"jti":     "valid-token",
 		"exp":     time.Now().Add(time.Hour).Unix(),
 	})
+	revokedToken := signTestToken(t, privateKey, jwt.MapClaims{
+		"user_id": 42,
+		"jti":     "revoked-token",
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	})
+	revokedTokens := services.NewRevokedTokens()
+	revokedTokens.Revoke("revoked-token", time.Now().Add(time.Hour))
 	expiredToken := signTestToken(t, privateKey, jwt.MapClaims{
 		"user_id": 42,
 		"exp":     time.Now().Add(-time.Hour).Unix(),
@@ -52,12 +62,13 @@ func TestAuthenticationRejectsInvalidTokens(t *testing.T) {
 		{name: "firma manipulada", token: tamperTestToken(validToken), expectedStatus: http.StatusUnauthorized},
 		{name: "token caducado", token: expiredToken, expectedStatus: http.StatusUnauthorized},
 		{name: "usuario ausente", token: missingUserToken, expectedStatus: http.StatusUnauthorized},
+		{name: "sesión cerrada", token: revokedToken, expectedStatus: http.StatusUnauthorized},
 		{name: "token válido", token: validToken, expectedStatus: http.StatusOK},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			response := performProtectedRequest(&privateKey.PublicKey, test.token)
+			response := performProtectedRequest(&privateKey.PublicKey, revokedTokens, test.token)
 			if response.Code != test.expectedStatus {
 				t.Fatalf(
 					"estado inesperado: obtenido %d, esperado %d",
@@ -103,16 +114,20 @@ func tamperTestToken(encodedToken string) string {
 }
 
 // Ejecuta una petición contra una ruta protegida por el middleware real.
-func performProtectedRequest(publicKey *rsa.PublicKey, encodedToken string) *httptest.ResponseRecorder {
+func performProtectedRequest(
+	publicKey *rsa.PublicKey,
+	revokedTokens *services.RevokedTokens,
+	encodedToken string,
+) *httptest.ResponseRecorder {
 	router := gin.New()
-	router.GET("/protected", AuthMiddleware(publicKey), func(c *gin.Context) {
+	router.GET("/protected", AuthMiddleware(publicKey, revokedTokens), func(c *gin.Context) {
 		userID, _ := c.Get("userID")
 		c.JSON(http.StatusOK, gin.H{"user_id": userID})
 	})
 
 	request := httptest.NewRequest(http.MethodGet, "/protected", nil)
 	if encodedToken != "" {
-		request.Header.Set("Authorization", "Bearer "+encodedToken)
+		request.AddCookie(&http.Cookie{Name: SessionCookieName, Value: encodedToken})
 	}
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)

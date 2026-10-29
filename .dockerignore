@@ -4,6 +4,7 @@
 .env
 .env.*
 tmp/
+.keys/
 *.png
 compose.yaml
 Dockerfile

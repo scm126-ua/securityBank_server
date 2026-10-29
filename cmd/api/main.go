@@ -34,7 +34,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("error cargando la identidad del servidor: %v", err)
 	}
-	log.Println("identidad asimétrica del servidor preparada")
+	serverIdentity, err := services.ExportServerPublicIdentity(serverPrivateKey)
+	if err != nil {
+		log.Fatalf("error exportando la identidad del servidor: %v", err)
+	}
+	// La huella permite fijar la identidad del servidor en el frontend (SERVER_KEY_FINGERPRINT).
+	log.Printf("identidad asimétrica del servidor preparada (huella SHA-256: %s)", serverIdentity.FingerprintSHA256)
 
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
@@ -71,6 +76,7 @@ func main() {
 	}))
 
 	api := router.Group("/api")
+	api.Use(middleware.APISecurityHeaders())
 	api.GET("/health", handlers.Health)
 	api.GET("/health/db", handlers.HealthDB(db))
 	api.GET("/server/public-key", handlers.ServerPublicIdentity(serverPrivateKey))
@@ -82,19 +88,36 @@ func main() {
 	accountService := services.NewAccountService(accountRepository, serverPrivateKey)
 	challengeService := services.NewAuthChallengeService()
 
+	documentRepository := repositories.NewDocumentRepository(db, services.DefaultDocumentQuota)
+	documentService := services.NewDocumentService(
+		documentRepository,
+		userRepository,
+		&serverPrivateKey.PublicKey,
+	)
+
 	// Login y registro
 	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService))
 	api.POST("/login/verify", handlers.VerifyLogin(userService, challengeService, serverPrivateKey))
 	api.POST("/register", handlers.Register(userService))
 
 	// Cuentas bancarias
+	revokedTokens := services.NewRevokedTokens()
 	protected := api.Group("/")
-	protected.Use(middleware.AuthMiddleware(&serverPrivateKey.PublicKey))
+	protected.Use(middleware.AuthMiddleware(&serverPrivateKey.PublicKey, revokedTokens))
+	protected.POST("/logout", handlers.Logout(revokedTokens))
 
 	protected.GET("/accounts", handlers.FindUserAccounts(accountService))
 	protected.POST("/accounts", handlers.CreateAccount(accountService))
 	protected.PATCH("/accounts/:id/close", handlers.CloseAccount(accountService))
 	protected.GET("/accounts/:id/ownership-certificate", handlers.CreateOwnershipCertificate(accountService))
+
+	// Documentos cifrados de extremo a extremo: 60 peticiones por minuto y usuario (ráfagas de 30)
+	documents := protected.Group("/documents")
+	documents.Use(middleware.UserRateLimit(60, 30))
+	documents.GET("", handlers.ListDocuments(documentService))
+	documents.POST("", handlers.UploadDocument(documentService))
+	documents.GET("/:id", handlers.DownloadDocument(documentService))
+	documents.DELETE("/:id", handlers.DeleteDocument(documentService))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

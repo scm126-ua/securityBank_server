@@ -37,7 +37,8 @@ services:
   #   docker compose run --rm migrate version
   migrate:
     image: migrate/migrate:v4.20.1
-    entrypoint: ["migrate", "-path=/migrations", "-database=${DATABASE_URL:?Define DATABASE_URL en .env}"]
+    # Las migraciones usan el propietario de las tablas; el backend, un rol con privilegios mínimos.
+    entrypoint: ["migrate", "-path=/migrations", "-database=${MIGRATE_DATABASE_URL:?Define MIGRATE_DATABASE_URL en .env}"]
     command: ["up"]
     working_dir: /migrations
     volumes:
@@ -45,6 +46,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  # Asigna al rol securitybank_app (creado por las migraciones) la contraseña de .env y termina.
+  app-role:
+    image: postgres:17.11-alpine3.24
+    environment:
+      PGHOST: db
+      PGDATABASE: ${POSTGRES_DB}
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Define APP_DB_PASSWORD en .env}
+    command: ["sh", "-c", "echo \"ALTER ROLE securitybank_app WITH LOGIN PASSWORD :'password'\" | psql -q -v ON_ERROR_STOP=1 -v password=\"$$APP_DB_PASSWORD\""]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   backend:
     build: .
@@ -59,8 +74,8 @@ services:
       db:
         # El backend no arranca hasta que el healthcheck de PostgreSQL es correcto...
         condition: service_healthy
-      migrate:
-        # ...y las migraciones se han aplicado sin errores.
+      app-role:
+        # ...y las migraciones y el rol de la aplicación están preparados.
         condition: service_completed_successfully
 
   frontend:
@@ -68,6 +83,8 @@ services:
     environment:
       # Activa el sondeo de ficheros en Vite (necesario en Docker sobre Windows).
       CHOKIDAR_USEPOLLING: "true"
+      # Huella de la clave del servidor que exige el frontend. Vacía: se fija en el primer acceso.
+      VITE_SERVER_KEY_FINGERPRINT: ${SERVER_KEY_FINGERPRINT:-}
     volumes:
       # El código del host se monta en el contenedor y Vite recarga en caliente.
       - ../securityBank_client/securityBank_client:/app

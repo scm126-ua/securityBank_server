@@ -15,7 +15,15 @@ import (
 
 const maxEncryptedPrivateKeysSize = 16 * 1024
 
+// Versión 2: la clave que protege el paquete se deriva con HMAC-SHA256 de una
+// clave maestra (PBKDF2 de la contraseña) que nunca sale del navegador.
+const (
+	privateKeyBundleVersion = 2
+	privateKeyBundleKDF     = "PBKDF2-HMAC-SHA256+HMAC-SHA256"
+)
+
 var ErrInvalidChallengeSignature = errors.New("firma del desafío no válida")
+var errInvalidUserSignature = errors.New("firma del usuario no válida")
 var ErrKeyMaterialUnavailable = errors.New("el usuario no tiene claves criptográficas")
 
 type PrivateKeyBundle struct {
@@ -61,9 +69,9 @@ func validateUserKeyMaterial(material UserKeyMaterial) (*validatedUserKeyMateria
 	}
 
 	bundle := material.PrivateKeys
-	if bundle.Version != 1 ||
+	if bundle.Version != privateKeyBundleVersion ||
 		bundle.Algorithm != "AES-256-GCM" ||
-		bundle.KDF != "PBKDF2-HMAC-SHA256" ||
+		bundle.KDF != privateKeyBundleKDF ||
 		bundle.Iterations != 600000 {
 		return nil, fmt.Errorf("%w: formato de paquete no compatible", ErrInvalidKeyMaterial)
 	}
@@ -114,6 +122,12 @@ func validateRSAPublicKey(value string) (string, []byte, error) {
 	return base64.StdEncoding.EncodeToString(decoded), decoded, nil
 }
 
+// Comprueba que la clave de autenticación derivada en el cliente tiene 256 bits.
+func validAuthKey(value string) bool {
+	decoded, err := decodeBase64(value)
+	return err == nil && len(decoded) == 32
+}
+
 // Decodifica Base64 rechazando caracteres o rellenos no válidos.
 func decodeBase64(value string) ([]byte, error) {
 	return base64.StdEncoding.Strict().DecodeString(value)
@@ -125,23 +139,40 @@ func verifyChallengeSignature(
 	challenge []byte,
 	encodedSignature string,
 ) error {
-	_, publicKeyDER, err := validateRSAPublicKey(encodedPublicKey)
+	signature, err := decodeBase64(encodedSignature)
 	if err != nil {
 		return ErrInvalidChallengeSignature
+	}
+
+	if err := verifyUserSignature(encodedPublicKey, challenge, signature); err != nil {
+		return ErrInvalidChallengeSignature
+	}
+
+	return nil
+}
+
+// Verifica una firma RSA-PSS-SHA256 (sal de 32 bytes) creada con la clave de firma de un usuario.
+func verifyUserSignature(
+	encodedPublicKey string,
+	message []byte,
+	signature []byte,
+) error {
+	_, publicKeyDER, err := validateRSAPublicKey(encodedPublicKey)
+	if err != nil {
+		return errInvalidUserSignature
 	}
 
 	parsed, err := x509.ParsePKIXPublicKey(publicKeyDER)
 	if err != nil {
-		return ErrInvalidChallengeSignature
+		return errInvalidUserSignature
 	}
 	publicKey := parsed.(*rsa.PublicKey)
 
-	signature, err := decodeBase64(encodedSignature)
-	if err != nil || len(signature) != publicKey.Size() {
-		return ErrInvalidChallengeSignature
+	if len(signature) != publicKey.Size() {
+		return errInvalidUserSignature
 	}
 
-	digest := sha256.Sum256(challenge)
+	digest := sha256.Sum256(message)
 	err = rsa.VerifyPSS(
 		publicKey,
 		crypto.SHA256,
@@ -153,7 +184,7 @@ func verifyChallengeSignature(
 		},
 	)
 	if err != nil {
-		return ErrInvalidChallengeSignature
+		return errInvalidUserSignature
 	}
 
 	return nil
@@ -174,7 +205,7 @@ func PrivateKeyBundleForUser(user *models.User) (PrivateKeyBundle, error) {
 	return PrivateKeyBundle{
 		Version:    *user.PrivateKeysVersion,
 		Algorithm:  "AES-256-GCM",
-		KDF:        "PBKDF2-HMAC-SHA256",
+		KDF:        privateKeyBundleKDF,
 		Iterations: *user.PrivateKeysIterations,
 		Salt:       base64.StdEncoding.EncodeToString(user.PrivateKeysSalt),
 		Nonce:      base64.StdEncoding.EncodeToString(user.PrivateKeysNonce),
