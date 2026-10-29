@@ -71,6 +71,7 @@ func main() {
 	}))
 
 	api := router.Group("/api")
+	api.Use(middleware.APISecurityHeaders())
 	api.GET("/health", handlers.Health)
 	api.GET("/health/db", handlers.HealthDB(db))
 	api.GET("/server/public-key", handlers.ServerPublicIdentity(serverPrivateKey))
@@ -81,6 +82,13 @@ func main() {
 	accountRepository := repositories.NewAccountRepository(db)
 	accountService := services.NewAccountService(accountRepository, serverPrivateKey)
 	challengeService := services.NewAuthChallengeService()
+
+	documentRepository := repositories.NewDocumentRepository(db, services.DefaultDocumentQuota)
+	documentService := services.NewDocumentService(
+		documentRepository,
+		userRepository,
+		&serverPrivateKey.PublicKey,
+	)
 
 	// Login y registro
 	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService))
@@ -95,6 +103,12 @@ func main() {
 	protected.POST("/accounts", handlers.CreateAccount(accountService))
 	protected.PATCH("/accounts/:id/close", handlers.CloseAccount(accountService))
 	protected.GET("/accounts/:id/ownership-certificate", handlers.CreateOwnershipCertificate(accountService))
+
+	// Documentos cifrados de extremo a extremo
+	protected.GET("/documents", handlers.ListDocuments(documentService))
+	protected.POST("/documents", handlers.UploadDocument(documentService))
+	protected.GET("/documents/:id", handlers.DownloadDocument(documentService))
+	protected.DELETE("/documents/:id", handlers.DeleteDocument(documentService))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
