@@ -241,6 +241,14 @@ func (r *AccountRepository) Close(
 	return &account, nil
 }
 
+// Registra un evento de auditoría que no forma parte de una transacción bancaria.
+func (r *AccountRepository) RecordAuditEvent(
+	ctx context.Context,
+	event *models.AccountAuditEvent,
+) error {
+	return createAccountAuditEvent(r.db.WithContext(ctx), event)
+}
+
 // Inserta un evento de auditoría utilizando la transacción de la operación bancaria.
 func createAccountAuditEvent(tx *gorm.DB, event *models.AccountAuditEvent) error {
 	return tx.Create(event).Error
