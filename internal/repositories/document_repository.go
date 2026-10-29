@@ -195,6 +195,23 @@ func (r *DocumentRepository) Create(
 			return ErrDocumentAlreadyExists
 		}
 
+		// Un identificador eliminado no se reutiliza: la firma de la subida original
+		// sigue siendo válida y reenviarla restauraría el documento borrado.
+		var deleted int64
+		err = tx.Model(&models.DocumentAuditEvent{}).
+			Where("document_id = ? AND action = ? AND result = ?",
+				document.PublicID,
+				models.DocumentAuditActionDelete,
+				models.DocumentAuditResultSuccess,
+			).
+			Count(&deleted).Error
+		if err != nil {
+			return err
+		}
+		if deleted > 0 {
+			return ErrDocumentAlreadyExists
+		}
+
 		if err := tx.Create(document).Error; err != nil {
 			return err
 		}
