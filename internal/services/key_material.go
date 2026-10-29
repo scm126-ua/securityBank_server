@@ -15,6 +15,13 @@ import (
 
 const maxEncryptedPrivateKeysSize = 16 * 1024
 
+// Versión 2: la clave que protege el paquete se deriva con HMAC-SHA256 de una
+// clave maestra (PBKDF2 de la contraseña) que nunca sale del navegador.
+const (
+	privateKeyBundleVersion = 2
+	privateKeyBundleKDF     = "PBKDF2-HMAC-SHA256+HMAC-SHA256"
+)
+
 var ErrInvalidChallengeSignature = errors.New("firma del desafío no válida")
 var errInvalidUserSignature = errors.New("firma del usuario no válida")
 var ErrKeyMaterialUnavailable = errors.New("el usuario no tiene claves criptográficas")
@@ -62,9 +69,9 @@ func validateUserKeyMaterial(material UserKeyMaterial) (*validatedUserKeyMateria
 	}
 
 	bundle := material.PrivateKeys
-	if bundle.Version != 1 ||
+	if bundle.Version != privateKeyBundleVersion ||
 		bundle.Algorithm != "AES-256-GCM" ||
-		bundle.KDF != "PBKDF2-HMAC-SHA256" ||
+		bundle.KDF != privateKeyBundleKDF ||
 		bundle.Iterations != 600000 {
 		return nil, fmt.Errorf("%w: formato de paquete no compatible", ErrInvalidKeyMaterial)
 	}
@@ -113,6 +120,12 @@ func validateRSAPublicKey(value string) (string, []byte, error) {
 	}
 
 	return base64.StdEncoding.EncodeToString(decoded), decoded, nil
+}
+
+// Comprueba que la clave de autenticación derivada en el cliente tiene 256 bits.
+func validAuthKey(value string) bool {
+	decoded, err := decodeBase64(value)
+	return err == nil && len(decoded) == 32
 }
 
 // Decodifica Base64 rechazando caracteres o rellenos no válidos.
@@ -192,7 +205,7 @@ func PrivateKeyBundleForUser(user *models.User) (PrivateKeyBundle, error) {
 	return PrivateKeyBundle{
 		Version:    *user.PrivateKeysVersion,
 		Algorithm:  "AES-256-GCM",
-		KDF:        "PBKDF2-HMAC-SHA256",
+		KDF:        privateKeyBundleKDF,
 		Iterations: *user.PrivateKeysIterations,
 		Salt:       base64.StdEncoding.EncodeToString(user.PrivateKeysSalt),
 		Nonce:      base64.StdEncoding.EncodeToString(user.PrivateKeysNonce),

@@ -14,8 +14,8 @@ import (
 )
 
 type LoginRequest struct {
-	Email    string `json:"email" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Email   string `json:"email" binding:"required"`
+	AuthKey string `json:"auth_key" binding:"required"`
 }
 
 type LoginVerificationRequest struct {
@@ -25,7 +25,7 @@ type LoginVerificationRequest struct {
 
 type RegisterRequest struct {
 	Email            string                  `json:"email" binding:"required,email"`
-	Password         string                  `json:"password" binding:"required"`
+	AuthKey          string                  `json:"auth_key" binding:"required"`
 	Name             string                  `json:"name" binding:"required"`
 	Surname          string                  `json:"surname" binding:"required"`
 	DNI              string                  `json:"dni" binding:"required"`
@@ -56,7 +56,7 @@ func StartLogin(
 			return
 		}
 
-		user, err := userService.Login(c.Request.Context(), input.Email, input.Password)
+		user, err := userService.Login(c.Request.Context(), input.Email, input.AuthKey)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Correo o contraseña incorrectos"})
 			return
@@ -159,7 +159,7 @@ func Register(userService *services.UserService) gin.HandlerFunc {
 		user, account, err := userService.Register(
 			c.Request.Context(),
 			input.Email,
-			input.Password,
+			input.AuthKey,
 			input.Name,
 			input.Surname,
 			input.DNI,
@@ -183,9 +183,9 @@ func Register(userService *services.UserService) gin.HandlerFunc {
 				"error": "El correo electrónico no es válido",
 			})
 			return
-		case errors.Is(err, services.ErrInvalidPassword):
+		case errors.Is(err, services.ErrInvalidAuthKey):
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "La contraseña no es válida",
+				"error": "La clave de autenticación no es válida",
 			})
 			return
 		case errors.Is(err, services.ErrInvalidDNI):

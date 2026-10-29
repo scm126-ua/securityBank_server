@@ -237,10 +237,12 @@ FROM document_audit_events ORDER BY id DESC;
   de auditoría. En producción debería usar un rol con solo `INSERT` y `SELECT` sobre ella.
 - El servidor no puede buscar malware en documentos cifrados de extremo a extremo: es un
   compromiso inherente a este modelo.
-- El servidor recibe la contraseña en el login y guarda el paquete de claves privadas cifrado
-  con ella, así que un servidor malicioso podría descifrarlas. Para un cifrado de extremo a
-  extremo completo, el cliente debería derivar de la contraseña dos claves independientes
-  (una para autenticarse y otra para cifrar) y enviar solo la primera.
+- La contraseña no llega al servidor: el cliente deriva de ella una clave maestra
+  (PBKDF2-SHA256, 600 000 iteraciones, con el correo como sal) y de esta, con HMAC-SHA256
+  y una etiqueta distinta para cada uso, dos claves independientes. Solo envía la de
+  autenticación; la que protege las claves privadas nunca sale del navegador. Aun así, un
+  servidor malicioso podría intentar adivinar contraseñas débiles a partir de la clave de
+  autenticación, y la política de contraseñas solo puede comprobarse en el cliente.
 - El JWT se guarda en `localStorage`. Una cookie `HttpOnly` y `SameSite`, junto con una
   política CSP en Caddy, reducirían el impacto de un XSS.
 

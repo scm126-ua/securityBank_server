@@ -60,24 +60,3 @@ func TestValidateSpanishDNI(t *testing.T) {
 		}
 	}
 }
-
-// Comprueba la política de contraseñas con distintos formatos.
-func TestValidatePassword(t *testing.T) {
-	tests := []struct {
-		password string
-		valid    bool
-	}{
-		{password: "Prueba1234", valid: true},
-		{password: "Corta1", valid: false},
-		{password: strings.Repeat("a", 73) + "1", valid: false},
-		{password: "abcdefgh", valid: false},
-		{password: "12345678", valid: false},
-	}
-
-	for _, test := range tests {
-		if result := ValidatePassword(test.password); result != test.valid {
-			t.Errorf("ValidatePassword(%q) = %v; se esperaba %v",
-				test.password, result, test.valid)
-		}
-	}
-}

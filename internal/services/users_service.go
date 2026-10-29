@@ -13,7 +13,7 @@ import (
 
 var (
 	ErrInvalidEmail          = errors.New("email no válido")
-	ErrInvalidPassword       = errors.New("contraseña no válida")
+	ErrInvalidAuthKey        = errors.New("clave de autenticación no válida")
 	ErrInvalidDNI            = errors.New("DNI no válido")
 	ErrInvalidKeyMaterial    = errors.New("material criptográfico no válido")
 	ErrInvalidKeyCertificate = errors.New("certificado de claves públicas no válido")
@@ -36,10 +36,12 @@ func NewUserService(
 	}
 }
 
+// La contraseña nunca llega al servidor: el cliente envía una clave de
+// autenticación derivada de ella, independiente de la que protege sus claves privadas.
 func (s *UserService) Login(
 	ctx context.Context,
 	email string,
-	password string,
+	authKey string,
 ) (*models.User, error) {
 	_email := strings.ToLower(strings.TrimSpace(email))
 	user, err := s.repo.FindByEmail(ctx, _email)
@@ -48,8 +50,8 @@ func (s *UserService) Login(
 		return nil, err
 	}
 
-	// Verificamos la contraseña proporcionada con el hash almacenado
-	isCorrect, err := VerifyPassword(password, user.PasswordHash, user.Salt)
+	// Verificamos la clave de autenticación con el hash almacenado
+	isCorrect, err := VerifyPassword(authKey, user.PasswordHash, user.Salt)
 	if err != nil {
 		return nil, err
 	}
@@ -102,14 +104,15 @@ func (s *UserService) VerifyChallenge(
 func (s *UserService) Register(
 	ctx context.Context,
 	email string,
-	password string,
+	authKey string,
 	name string,
 	surname string,
 	dni string,
 	keyMaterial UserKeyMaterial,
 ) (*models.User, *models.Account, error) {
 
-	// Normalizamos y validamos el email, la contraseña y el DNI
+	// Normalizamos y validamos el email, la clave de autenticación y el DNI.
+	// La política de contraseñas solo puede comprobarse en el cliente.
 	_email := strings.ToLower(strings.TrimSpace(email))
 	_dni := strings.ToUpper(strings.TrimSpace(dni))
 
@@ -118,8 +121,8 @@ func (s *UserService) Register(
 		return nil, nil, ErrInvalidEmail
 	}
 
-	if !ValidatePassword(password) {
-		return nil, nil, ErrInvalidPassword
+	if !validAuthKey(authKey) {
+		return nil, nil, ErrInvalidAuthKey
 	}
 
 	if !ValidateSpanishDNI(_dni) {
@@ -156,8 +159,8 @@ func (s *UserService) Register(
 	// LOGICA DE CIFRADO
 	// Generamos una clave de 32 bytes
 
-	// Generar Hash de contraseña (la password es password + salt)
-	passwordHash, salt, err := HashPassword(password)
+	// Generar Hash de la clave de autenticación (clave + salt)
+	passwordHash, salt, err := HashPassword(authKey)
 	if err != nil {
 		return nil, nil, err
 	}
