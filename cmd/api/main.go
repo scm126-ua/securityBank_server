@@ -34,7 +34,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("error cargando la identidad del servidor: %v", err)
 	}
-	log.Println("identidad asimétrica del servidor preparada")
+	serverIdentity, err := services.ExportServerPublicIdentity(serverPrivateKey)
+	if err != nil {
+		log.Fatalf("error exportando la identidad del servidor: %v", err)
+	}
+	// La huella permite fijar la identidad del servidor en el frontend (SERVER_KEY_FINGERPRINT).
+	log.Printf("identidad asimétrica del servidor preparada (huella SHA-256: %s)", serverIdentity.FingerprintSHA256)
 
 	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {

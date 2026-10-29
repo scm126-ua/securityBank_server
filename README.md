@@ -56,6 +56,7 @@ cp .env.example .env
 | `BACKEND_PORT`       | Puerto interno del backend (`8080`)                                      |
 | `HTTPS_PORT`         | Puerto HTTPS público del proxy (`8443`)                                  |
 | `CORS_ORIGIN`        | Origen del frontend permitido por CORS (`https://localhost:8443`)        |
+| `SERVER_KEY_FINGERPRINT` | Huella de la clave del servidor que exige el frontend (opcional, ver logs del backend) |
 
 - `.env` está excluido de Git: no subas nunca contraseñas ni credenciales reales.
 - PostgreSQL solo aplica `POSTGRES_USER` y `POSTGRES_PASSWORD` la primera vez que crea el
@@ -170,6 +171,9 @@ Otras medidas:
   Cada usuario tiene una cuota de 100 documentos y 100 MiB cifrados; la fila del usuario se
   bloquea durante la subida para que dos peticiones simultáneas no la superen.
 - Quien no tiene acceso recibe **404**, igual que si el documento no existiera.
+- El cliente fija la identidad del servidor: exige la huella de `SERVER_KEY_FINGERPRINT` o, si
+  no está definida, la del primer inicio de sesión (TOFU), y no continúa si la clave cambia.
+  Si regeneras `.keys/`, borra los datos del sitio en el navegador.
 - La descarga se entrega como `application/octet-stream`, para que un HTML o SVG malicioso
   no se ejecute con el origen de la aplicación.
 - `document_audit_events` registra subidas, descargas y eliminaciones (éxitos, rechazos y
