@@ -189,6 +189,11 @@ Otras medidas:
   Si regeneras `.keys/`, borra los datos del sitio en el navegador.
 - La descarga se entrega como `application/octet-stream`, para que un HTML o SVG malicioso
   no se ejecute con el origen de la aplicación.
+- El navegador solo admite PDF, PNG, JPEG y JSON, reconociéndolos por sus primeros bytes y
+  no por la extensión. Es una comprobación del cliente: el servidor no puede hacerla porque
+  solo recibe datos cifrados.
+- La sesión se cierra tras 15 minutos sin actividad y al recargar la página, y las claves
+  privadas se borran de memoria.
 - `document_audit_events` registra subidas, descargas y eliminaciones (éxitos, rechazos y
   errores). Un *trigger* impide `UPDATE`, `DELETE` y `TRUNCATE`. Si una descarga no se puede
   auditar, no se entrega.
@@ -257,6 +262,17 @@ FROM document_audit_events ORDER BY id DESC;
   desactivar el *trigger* de auditoría: en producción no debería estar en el servidor de la aplicación.
 - El servidor no puede buscar malware en documentos cifrados de extremo a extremo: es un
   compromiso inherente a este modelo.
+- El propio servidor entrega el código JavaScript: si estuviera comprometido, podría enviar
+  un cliente modificado. Es la limitación de fondo del cifrado de extremo a extremo en web;
+  se mitiga con builds reproducibles o con una aplicación instalada.
+- RSA-OAEP no resistiría a un ordenador cuántico y los documentos se guardan durante años
+  (*capturar ahora, descifrar después*). La columna `key_algorithm` permite añadir más
+  adelante un esquema post-cuántico como ML-KEM.
+- Borrar un documento elimina el cifrado y sus claves envueltas, pero las copias de
+  seguridad los conservan. Para que sea irrecuperable habría que rotar también las claves
+  del usuario.
+- El servidor sigue viendo la fecha, el tipo, el número de documentos, su rango de tamaño
+  y cuándo se accede a cada uno.
 - La contraseña no llega al servidor: el cliente deriva de ella una clave maestra
   (PBKDF2-SHA256, 600 000 iteraciones, con el correo como sal) y de esta, con HMAC-SHA256
   y una etiqueta distinta para cada uso, dos claves independientes. Solo envía la de
