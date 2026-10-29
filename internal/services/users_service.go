@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"errors"
+	"fmt"
 	"net/mail"
 	"strings"
 
@@ -24,6 +25,30 @@ var (
 type UserService struct {
 	repo             *repositories.UserRepository
 	serverPrivateKey *rsa.PrivateKey
+}
+
+func (s *UserService) FindUserByEmail(ctx context.Context,
+	email string) (*models.User, error) {
+	fmt.Printf("%s", email)
+	return s.repo.FindByEmail(ctx, email)
+}
+
+func (s *UserService) AddFailedLoginAttempt(ctx context.Context,
+	email string) (*models.User, error) {
+	user, err := s.repo.AddFailedLoginAttempt(ctx, email)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+func (s *UserService) ResetFailedLoginAttempts(
+	ctx context.Context,
+	userID int64,
+) error {
+	return s.repo.ResetFailedLoginAttempts(ctx, userID)
 }
 
 func NewUserService(
@@ -176,20 +201,22 @@ func (s *UserService) Register(
 	}
 
 	user := &models.User{
-		Email:                 _email,
-		Name:                  strings.TrimSpace(name + " " + surname),
-		DNI:                   _dni,
-		Salt:                  salt,
-		PasswordHash:          passwordHash,
-		Role:                  models.UserRoleClient,
-		PublicKey:             &validatedKeys.publicKey,
-		SigningPublicKey:      &validatedKeys.signingPublicKey,
-		PublicKeysSignature:   &publicKeysSignature,
-		EncryptedPrivateKeys:  validatedKeys.ciphertext,
-		PrivateKeysSalt:       validatedKeys.salt,
-		PrivateKeysNonce:      validatedKeys.nonce,
-		PrivateKeysIterations: &validatedKeys.iterations,
-		PrivateKeysVersion:    &validatedKeys.version,
+		Email:                  _email,
+		Name:                   strings.TrimSpace(name + " " + surname),
+		DNI:                    _dni,
+		Salt:                   salt,
+		PasswordHash:           passwordHash,
+		Role:                   models.UserRoleClient,
+		PublicKey:              &validatedKeys.publicKey,
+		SigningPublicKey:       &validatedKeys.signingPublicKey,
+		PublicKeysSignature:    &publicKeysSignature,
+		EncryptedPrivateKeys:   validatedKeys.ciphertext,
+		PrivateKeysSalt:        validatedKeys.salt,
+		PrivateKeysNonce:       validatedKeys.nonce,
+		PrivateKeysIterations:  &validatedKeys.iterations,
+		PrivateKeysVersion:     &validatedKeys.version,
+		FailedLoginAttempts:    0,
+		LastFailedLoginAttempt: nil,
 	}
 
 	iban, err := GenerateSpanishIBAN("0036", "1234")

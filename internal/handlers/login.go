@@ -50,6 +50,7 @@ type PrivateKeyBundleRequest struct {
 }
 
 // Inicia un acceso después de comprobar la contraseña y entrega un desafío.
+// Los intentos fallidos se registran aquí mismo en el backend.
 func StartLogin(
 	userService *services.UserService,
 	challengeService *services.AuthChallengeService,
@@ -61,8 +62,34 @@ func StartLogin(
 			return
 		}
 
+		// Comprobamos si está bloqueado
+		existingUser, err := userService.FindUserByEmail(c, input.Email)
+
+		if err == nil && rejectIfLocked(c, existingUser.LockedUntil) {
+			return
+		}
+
 		user, err := userService.Login(c.Request.Context(), input.Email, input.AuthKey)
 		if err != nil {
+			// Registrar el intento fallido en backend y comprobar bloqueo
+			if existingUser != nil {
+				updatedUser, addErr := userService.AddFailedLoginAttempt(
+					c.Request.Context(), input.Email,
+				)
+
+				if addErr == nil && updatedUser.LockedUntil != nil &&
+					time.Now().Before(*updatedUser.LockedUntil) {
+
+					remaining := int(time.Until(*updatedUser.LockedUntil).Seconds()) + 1
+
+					c.JSON(http.StatusLocked, gin.H{
+						"error":               "Correo o contraseña incorrectos. Usuario temporalmente bloqueado",
+						"retry_after_seconds": remaining,
+					})
+					return
+				}
+			}
+
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Correo o contraseña incorrectos"})
 			return
 		}
@@ -91,6 +118,24 @@ func StartLogin(
 			"private_key_bundle": privateKeyBundle,
 		})
 	}
+
+}
+
+func rejectIfLocked(c *gin.Context, lockedUntil *time.Time) bool {
+	if lockedUntil == nil || !time.Now().Before(*lockedUntil) {
+		return false
+	}
+
+	remaining := int(time.Until(*lockedUntil).Seconds()) + 1
+
+	c.JSON(http.StatusLocked, gin.H{
+		"status":              "error",
+		"error":               "Usuario temporalmente bloqueado",
+		"locked_until":        lockedUntil,
+		"retry_after_seconds": remaining,
+	})
+
+	return true
 }
 
 // Verifica la firma de un desafío consumible y entrega el token de sesión.
@@ -122,6 +167,18 @@ func VerifyLogin(
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Firma del desafío no válida"})
 			return
 		}
+
+		if err := userService.ResetFailedLoginAttempts(
+			c.Request.Context(),
+			user.ID,
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "No se pudo actualizar el estado de autenticación",
+			})
+			return
+		}
+
+		// Continúa con la respuesta de login exitoso.
 
 		tokenString, err := createJWT(user.ID, serverPrivateKey)
 		if err != nil {
@@ -163,8 +220,7 @@ func createJWT(userID int64, serverPrivateKey *rsa.PrivateKey) (string, error) {
 	return token.SignedString(serverPrivateKey)
 }
 
-// Guarda el token en una cookie que JavaScript no puede leer (HttpOnly), que solo
-// viaja por HTTPS (Secure), únicamente a la API y nunca desde otros sitios (SameSite).
+
 func setSessionCookie(c *gin.Context, token string, maxAge int) {
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(middleware.SessionCookieName, token, maxAge, "/api", "", true, true)

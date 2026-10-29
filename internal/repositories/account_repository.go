@@ -3,10 +3,8 @@ package repositories
 import (
 	"context"
 	"errors"
-
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-
 	"securityBank_server/internal/models"
 )
 
@@ -32,6 +30,8 @@ type AccountOwnershipRecord struct {
 func NewAccountRepository(db *gorm.DB) *AccountRepository {
 	return &AccountRepository{db: db}
 }
+
+
 
 // Buscar una cuenta por IBAN
 func (r *AccountRepository) FindByIBAN(

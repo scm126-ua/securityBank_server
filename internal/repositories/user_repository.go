@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -38,6 +39,93 @@ func (r *UserRepository) FindByEmail(
 	}
 
 	return &user, nil
+}
+
+func (r *UserRepository) AddFailedLoginAttempt(
+	ctx context.Context,
+	email string,
+) (*models.User, error) {
+
+	// Registramos el intento fallido
+	result := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("email = ?", email).
+		Updates(map[string]interface{}{
+			"failed_login_attempts":     gorm.Expr("failed_login_attempts + 1"),
+			"last_failed_login_attempt": time.Now(),
+		})
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return nil, ErrUserNotFound
+	}
+
+	// Recuperamos el usuario con el contador actualizado
+	var user models.User
+
+	err := r.db.WithContext(ctx).
+		Where("email = ?", email).
+		First(&user).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	lastAttempt := user.FailedLoginAttempts
+
+	// Cada 3 intentos fallidos, aplicamos un bloqueo de 5 minutos por intento.
+	if lastAttempt%3 == 0 {
+		lockedUntil := time.Now().Add(
+			time.Duration(5*lastAttempt) * time.Minute,
+		)
+
+		result = r.db.WithContext(ctx).
+			Model(&models.User{}).
+			Where("id = ?", user.ID).
+			Update("locked_until", lockedUntil)
+
+		if result.Error != nil {
+			return nil, result.Error
+		}
+
+		if result.RowsAffected == 0 {
+			return nil, ErrUserNotFound
+		}
+
+		// Actualizamos el valor en el objeto que devolveremos.
+		user.LockedUntil = &lockedUntil
+	}
+
+	return &user, nil
+}
+
+// ResetFailedLoginAttempts limpia los intentos fallidos
+// y cualquier bloqueo asociado al usuario.
+func (r *UserRepository) ResetFailedLoginAttempts(
+	ctx context.Context,
+	userID int64,
+) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"failed_login_attempts":     0,
+			"last_failed_login_attempt": nil,
+			"locked_until":              nil,
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
 }
 
 // Busca un usuario por su identificador y distingue cuando no existe.
@@ -104,3 +192,4 @@ func (r *UserRepository) CreateWithAccount(
 
 	return account, nil
 }
+
