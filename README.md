@@ -177,7 +177,9 @@ Otras medidas:
   `TRANSACTION_RECEIPT` se reservan para documentos que genere el propio banco.
 - Límites: 10 MB por documento y 14 MiB por petición (**413** antes de procesarla).
   Cada usuario tiene una cuota de 100 documentos y 100 MiB cifrados; la fila del usuario se
-  bloquea durante la subida para que dos peticiones simultáneas no la superen.
+  bloquea durante la subida para que dos peticiones simultáneas no la superen. Además, cada
+  usuario puede hacer 60 peticiones por minuto a `/api/documents` (ráfagas de 30); por encima
+  recibe **429**.
 - Quien no tiene acceso recibe **404**, igual que si el documento no existiera.
 - El cliente fija la identidad del servidor: exige la huella de `SERVER_KEY_FINGERPRINT` o, si
   no está definida, la del primer inicio de sesión (TOFU), y no continúa si la clave cambia.

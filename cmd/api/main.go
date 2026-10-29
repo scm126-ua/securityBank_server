@@ -111,11 +111,13 @@ func main() {
 	protected.PATCH("/accounts/:id/close", handlers.CloseAccount(accountService))
 	protected.GET("/accounts/:id/ownership-certificate", handlers.CreateOwnershipCertificate(accountService))
 
-	// Documentos cifrados de extremo a extremo
-	protected.GET("/documents", handlers.ListDocuments(documentService))
-	protected.POST("/documents", handlers.UploadDocument(documentService))
-	protected.GET("/documents/:id", handlers.DownloadDocument(documentService))
-	protected.DELETE("/documents/:id", handlers.DeleteDocument(documentService))
+	// Documentos cifrados de extremo a extremo: 60 peticiones por minuto y usuario (ráfagas de 30)
+	documents := protected.Group("/documents")
+	documents.Use(middleware.UserRateLimit(60, 30))
+	documents.GET("", handlers.ListDocuments(documentService))
+	documents.POST("", handlers.UploadDocument(documentService))
+	documents.GET("/:id", handlers.DownloadDocument(documentService))
+	documents.DELETE("/:id", handlers.DeleteDocument(documentService))
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
