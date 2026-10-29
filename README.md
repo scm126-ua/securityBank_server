@@ -52,7 +52,9 @@ cp .env.example .env
 | `POSTGRES_USER`      | Usuario de PostgreSQL (`securitybank`)                                   |
 | `POSTGRES_PASSWORD`  | Contraseña de PostgreSQL. Pon una propia, solo para desarrollo           |
 | `POSTGRES_HOST_PORT` | Puerto de tu ordenador para DBeaver (`5432`; usa `5433` si está ocupado) |
-| `DATABASE_URL`       | Conexión del backend. Se construye con las variables anteriores          |
+| `APP_DB_PASSWORD`    | Contraseña del rol `securitybank_app` del backend. Distinta de la anterior |
+| `MIGRATE_DATABASE_URL` | Conexión de las migraciones, con el propietario de las tablas          |
+| `DATABASE_URL`       | Conexión del backend, con el rol `securitybank_app` de privilegios mínimos |
 | `BACKEND_PORT`       | Puerto interno del backend (`8080`)                                      |
 | `HTTPS_PORT`         | Puerto HTTPS público del proxy (`8443`)                                  |
 | `CORS_ORIGIN`        | Origen del frontend permitido por CORS (`https://localhost:8443`)        |
@@ -83,8 +85,14 @@ un aviso de seguridad hasta que se confíe en su autoridad certificadora local.
 Al guardar cambios, Vite recarga el frontend y Air recompila el backend automáticamente.
 
 Orden de arranque: PostgreSQL → `migrate` (aplica las migraciones pendientes y termina) →
-backend. Si una migración falla, el backend no arranca. En `docker compose ps -a`, el
-servicio `migrate` aparece como `Exited (0)`: es lo normal.
+`app-role` (asigna la contraseña al rol de la aplicación y termina) → backend. Si una
+migración falla, el backend no arranca. En `docker compose ps -a`, `migrate` y `app-role`
+aparecen como `Exited (0)`: es lo normal.
+
+El backend se conecta con el rol `securitybank_app`: puede leer y escribir los datos del
+banco, pero solo consultar y añadir eventos de auditoría, y no puede cambiar el esquema ni
+desactivar los *triggers*. Si un fallo o una inyección SQL comprometen la aplicación, la
+auditoría sigue intacta.
 
 Si cambias las dependencias del frontend (`package.json`), reinstálalas en el contenedor:
 
@@ -240,8 +248,8 @@ FROM document_audit_events ORDER BY id DESC;
 
 ### Limitaciones conocidas
 
-- La aplicación se conecta como propietaria de las tablas y podría desactivar el *trigger*
-  de auditoría. En producción debería usar un rol con solo `INSERT` y `SELECT` sobre ella.
+- Quien tenga la contraseña del propietario de las tablas (`POSTGRES_PASSWORD`) sí puede
+  desactivar el *trigger* de auditoría: en producción no debería estar en el servidor de la aplicación.
 - El servidor no puede buscar malware en documentos cifrados de extremo a extremo: es un
   compromiso inherente a este modelo.
 - La contraseña no llega al servidor: el cliente deriva de ella una clave maestra
@@ -395,6 +403,8 @@ docker compose run --rm migrate up
 - **No edites una migración que ya está en Git**, porque tus compañeros ya la han aplicado.
   Si hay que corregir algo, crea una migración nueva.
 - **No uses `AutoMigrate`** ni toques la tabla `schema_migrations` a mano.
+- **Cada tabla nueva necesita su `GRANT` a `securitybank_app`** en la misma migración
+  (solo `SELECT, INSERT` si es de auditoría). Sin él, el backend recibe `permission denied`.
 
 ### Restaurar una copia de seguridad
 
