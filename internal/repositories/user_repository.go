@@ -193,8 +193,3 @@ func (r *UserRepository) CreateWithAccount(
 	return account, nil
 }
 
-func (r *UserRepository) TemporalLoginBlock(
-	ctx context.Context,
-	email string) {
-
-}

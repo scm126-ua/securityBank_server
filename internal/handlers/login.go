@@ -4,7 +4,6 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -35,10 +34,6 @@ type RegisterRequest struct {
 	PrivateKeyBundle PrivateKeyBundleRequest `json:"private_key_bundle" binding:"required"`
 }
 
-type GetUserRequest struct {
-	Email string `json:"email" binding:"required,email"`
-}
-
 type PrivateKeyBundleRequest struct {
 	Version    int16  `json:"version" binding:"required"`
 	Algorithm  string `json:"algorithm" binding:"required"`
@@ -50,6 +45,7 @@ type PrivateKeyBundleRequest struct {
 }
 
 // Inicia un acceso después de comprobar la contraseña y entrega un desafío.
+// Los intentos fallidos se registran aquí mismo en el backend.
 func StartLogin(
 	userService *services.UserService,
 	challengeService *services.AuthChallengeService,
@@ -61,8 +57,34 @@ func StartLogin(
 			return
 		}
 
+		// Comprobamos si está bloqueado
+		existingUser, err := userService.FindUserByEmail(c, input.Email)
+
+		if err == nil && rejectIfLocked(c, existingUser.LockedUntil) {
+			return
+		}
+
 		user, err := userService.Login(c.Request.Context(), input.Email, input.Password)
 		if err != nil {
+			// Registrar el intento fallido en backend y comprobar bloqueo
+			if existingUser != nil {
+				updatedUser, addErr := userService.AddFailedLoginAttempt(
+					c.Request.Context(), input.Email,
+				)
+
+				if addErr == nil && updatedUser.LockedUntil != nil &&
+					time.Now().Before(*updatedUser.LockedUntil) {
+
+					remaining := int(time.Until(*updatedUser.LockedUntil).Seconds()) + 1
+
+					c.JSON(http.StatusLocked, gin.H{
+						"error":               "Correo o contraseña incorrectos. Usuario temporalmente bloqueado",
+						"retry_after_seconds": remaining,
+					})
+					return
+				}
+			}
+
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Correo o contraseña incorrectos"})
 			return
 		}
@@ -91,6 +113,24 @@ func StartLogin(
 			"private_key_bundle": privateKeyBundle,
 		})
 	}
+
+}
+
+func rejectIfLocked(c *gin.Context, lockedUntil *time.Time) bool {
+	if lockedUntil == nil || !time.Now().Before(*lockedUntil) {
+		return false
+	}
+
+	remaining := int(time.Until(*lockedUntil).Seconds()) + 1
+
+	c.JSON(http.StatusLocked, gin.H{
+		"status":              "error",
+		"error":               "Usuario temporalmente bloqueado",
+		"locked_until":        lockedUntil,
+		"retry_after_seconds": remaining,
+	})
+
+	return true
 }
 
 // Verifica la firma de un desafío consumible y entrega el token de sesión.
@@ -160,81 +200,9 @@ func createJWT(userID int64, serverPrivateKey *rsa.PrivateKey) (string, error) {
 	return token.SignedString(serverPrivateKey)
 }
 
-func AddFailedLoginAttempt(userService *services.UserService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		fmt.Println("[AddFailedLoginAttempt] Handler ejecutado")
-
-		var input GetUserRequest
-
-		if err := c.ShouldBindJSON(&input); err != nil {
-			fmt.Println("[AddFailedLoginAttempt] Error leyendo JSON:", err)
-
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "Petición JSON inválida",
-			})
-			return
-		}
-
-		email := input.Email
-
-		if email == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "El email es obligatorio",
-			})
-			return
-		}
-
-		user, err := userService.AddFailedLoginAttempt(c, email)
-		if err != nil {
-			fmt.Println("[AddFailedLoginAttempt] Error:", err)
-
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"status":  "error",
-				"message": "No se ha podido registrar el intento",
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "ok",
-			"message": "Intento de login aplicado correctamente",
-			"user":    user,
-		})
-	}
-}
-
-func GetUserByEmail(userService *services.UserService) gin.HandlerFunc {
-	return func(c *gin.Context) {
-
-		// Obtener el email de la query string
-		email := c.Query("email")
-
-		if email == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"status":  "error",
-				"message": "El email es obligatorio",
-			})
-			return
-		}
-
-		user, err := userService.FindUserByEmail(c, email)
-
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{
-				"status":  "error",
-				"message": "Usuario no encontrado",
-			})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ok",
-			"user":   user,
-		})
-	}
-}
+// AddFailedLoginAttempt y GetUserByEmail eliminados:
+// la lógica de intentos fallidos se ejecuta dentro de StartLogin
+// y el endpoint GetUserByEmail exponía datos del usuario sin autenticación.
 
 func Register(userService *services.UserService) gin.HandlerFunc {
 	return func(c *gin.Context) {

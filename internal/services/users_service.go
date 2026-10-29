@@ -87,13 +87,6 @@ func (s *UserService) Login(
 
 }
 
-func (s *UserService) TemporalLoginBlock(
-	ctx context.Context,
-	email string,
-) {
-
-}
-
 // Comprueba la firma del desafío con la clave pública registrada del usuario.
 func (s *UserService) VerifyChallenge(
 	ctx context.Context,
