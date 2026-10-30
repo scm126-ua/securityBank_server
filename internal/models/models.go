@@ -29,5 +29,6 @@ func All() []schema.Tabler {
 		&DocumentAccess{},
 		&AccountAuditEvent{},
 		&DocumentAuditEvent{},
+		&TransactionAuditEvent{},
 	}
 }

@@ -71,7 +71,7 @@ func main() {
 	router.Use(cors.New(cors.Config{
 		AllowOrigins: []string{cfg.CORSOrigin},
 		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-		AllowHeaders: []string{"Origin", "Content-Type", "Authorization"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Authorization", "Idempotency-Key"},
 		MaxAge:       12 * time.Hour,
 	}))
 
@@ -87,6 +87,9 @@ func main() {
 	accountRepository := repositories.NewAccountRepository(db)
 	accountService := services.NewAccountService(accountRepository, serverPrivateKey)
 	challengeService := services.NewAuthChallengeService()
+
+	transactionRepository := repositories.NewTransactionRepository(db, services.DeriveHMACKey(serverPrivateKey))
+	transactionService := services.NewTransactionService(transactionRepository, accountRepository, serverPrivateKey)
 
 	documentRepository := repositories.NewDocumentRepository(db, services.DefaultDocumentQuota)
 	documentService := services.NewDocumentService(
@@ -111,7 +114,7 @@ func main() {
 	api.POST("/register", handlers.Register(userService, totpService))
 	api.POST("/totp/generate", totpHandler.Generate)
 
-	// Cuentas bancarias
+	// Cuentas bancarias y operaciones protegidas
 	revokedTokens := services.NewRevokedTokens()
 	protected := api.Group("/")
 	protected.Use(middleware.AuthMiddleware(&serverPrivateKey.PublicKey, revokedTokens))
@@ -129,6 +132,14 @@ func main() {
 	protected.POST("/accounts", handlers.CreateAccount(accountService))
 	protected.PATCH("/accounts/:id/close", handlers.CloseAccount(accountService))
 	protected.GET("/accounts/:id/ownership-certificate", handlers.CreateOwnershipCertificate(accountService))
+
+	// Movimientos y operativa bancaria
+	protected.POST("/accounts/:id/deposit", handlers.Deposit(transactionService))
+	protected.POST("/accounts/:id/withdraw", handlers.Withdraw(transactionService))
+	protected.POST("/accounts/:id/transfer", handlers.Transfer(transactionService))
+	protected.GET("/accounts/:id/transactions", handlers.ListTransactions(transactionService))
+	protected.GET("/accounts/:id/statement", handlers.GetAccountStatement(transactionService))
+	protected.GET("/transactions/:reference/receipt", handlers.GetTransactionReceipt(transactionService))
 
 	// Documentos cifrados de extremo a extremo: 60 peticiones por minuto y usuario (ráfagas de 30)
 	documents := protected.Group("/documents")

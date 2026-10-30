@@ -69,9 +69,9 @@ func validateUserKeyMaterial(material UserKeyMaterial) (*validatedUserKeyMateria
 	}
 
 	bundle := material.PrivateKeys
-	if bundle.Version != privateKeyBundleVersion ||
+	if (bundle.Version != 1 && bundle.Version != privateKeyBundleVersion) ||
 		bundle.Algorithm != "AES-256-GCM" ||
-		bundle.KDF != privateKeyBundleKDF ||
+		(bundle.KDF != "PBKDF2-HMAC-SHA256" && bundle.KDF != privateKeyBundleKDF) ||
 		bundle.Iterations != 600000 {
 		return nil, fmt.Errorf("%w: formato de paquete no compatible", ErrInvalidKeyMaterial)
 	}
@@ -205,7 +205,12 @@ func PrivateKeyBundleForUser(user *models.User) (PrivateKeyBundle, error) {
 	return PrivateKeyBundle{
 		Version:    *user.PrivateKeysVersion,
 		Algorithm:  "AES-256-GCM",
-		KDF:        privateKeyBundleKDF,
+		KDF: func() string {
+			if user.PrivateKeysVersion != nil && *user.PrivateKeysVersion == 1 {
+				return "PBKDF2-HMAC-SHA256"
+			}
+			return privateKeyBundleKDF
+		}(),
 		Iterations: *user.PrivateKeysIterations,
 		Salt:       base64.StdEncoding.EncodeToString(user.PrivateKeysSalt),
 		Nonce:      base64.StdEncoding.EncodeToString(user.PrivateKeysNonce),
