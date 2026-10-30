@@ -26,6 +26,7 @@ type LoginRequest struct {
 type LoginVerificationRequest struct {
 	ChallengeID string `json:"challenge_id" binding:"required"`
 	Signature   string `json:"signature" binding:"required"`
+	TotpCode    string `json:"totp_code"`
 }
 
 type RegisterRequest struct {
@@ -37,6 +38,8 @@ type RegisterRequest struct {
 	PublicKey        string                  `json:"public_key" binding:"required"`
 	SigningPublicKey string                  `json:"signing_public_key" binding:"required"`
 	PrivateKeyBundle PrivateKeyBundleRequest `json:"private_key_bundle" binding:"required"`
+	TotpSecret       string                  `json:"totp_secret"`
+	TotpCode         string                  `json:"totp_code"`
 }
 
 type PrivateKeyBundleRequest struct {
@@ -116,6 +119,7 @@ func StartLogin(
 			"challenge":          base64.StdEncoding.EncodeToString(challenge),
 			"expires_at":         expiresAt,
 			"private_key_bundle": privateKeyBundle,
+			"totp_required":      user.TotpEnabled,
 		})
 	}
 
@@ -143,6 +147,7 @@ func VerifyLogin(
 	userService *services.UserService,
 	challengeService *services.AuthChallengeService,
 	serverPrivateKey *rsa.PrivateKey,
+	totpService *services.TOTPService,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var input LoginVerificationRequest
@@ -166,6 +171,18 @@ func VerifyLogin(
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Firma del desafío no válida"})
 			return
+		}
+
+		if user.TotpEnabled {
+			if input.TotpCode == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Se requiere el código de verificación 2FA"})
+				return
+			}
+
+			if err := totpService.VerifyTOTP(c.Request.Context(), user.ID, input.TotpCode); err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Código 2FA incorrecto"})
+				return
+			}
 		}
 
 		if err := userService.ResetFailedLoginAttempts(
@@ -226,7 +243,7 @@ func setSessionCookie(c *gin.Context, token string, maxAge int) {
 	c.SetCookie(middleware.SessionCookieName, token, maxAge, "/api", "", true, true)
 }
 
-func Register(userService *services.UserService) gin.HandlerFunc {
+func Register(userService *services.UserService, totpService *services.TOTPService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var input RegisterRequest
 
@@ -236,6 +253,36 @@ func Register(userService *services.UserService) gin.HandlerFunc {
 				"error": "Datos de registro inválidos " + err.Error(),
 			})
 			return
+		}
+
+		var encryptedSecret []byte
+		var totpEnabled bool
+
+		if input.TotpSecret != "" || input.TotpCode != "" {
+			if input.TotpSecret == "" || input.TotpCode == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "Para activar 2FA se requiere tanto el secreto como el código de verificación",
+				})
+				return
+			}
+
+			valid, err := totpService.ValidateCode(input.TotpSecret, input.TotpCode)
+			if err != nil || !valid {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "El código 2FA no es válido",
+				})
+				return
+			}
+
+			encSecret, err := totpService.EncryptSecret(input.TotpSecret)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": "Error al procesar el secreto 2FA",
+				})
+				return
+			}
+			encryptedSecret = encSecret
+			totpEnabled = true
 		}
 
 		// Llamamos al servicio de registro
@@ -259,6 +306,8 @@ func Register(userService *services.UserService) gin.HandlerFunc {
 					Ciphertext: input.PrivateKeyBundle.Ciphertext,
 				},
 			},
+			encryptedSecret,
+			totpEnabled,
 		)
 		switch {
 		case errors.Is(err, services.ErrInvalidEmail):

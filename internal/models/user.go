@@ -36,7 +36,11 @@ type User struct {
 	FailedLoginAttempts    int        `gorm:"column:failed_login_attempts" json:"failed_login_attempts"`
 	LastFailedLoginAttempt *time.Time `gorm:"column:last_failed_login_attempt" json:"last_failed_login_attempt"`
 	LockedUntil            *time.Time `gorm:"column:locked_until" json:"locked_until"`
-	
+
+	TotpSecret      []byte     `gorm:"column:totp_secret" json:"-"`
+	TotpEnabled     bool       `gorm:"column:totp_enabled" json:"totp_enabled"`
+	TotpConfirmedAt *time.Time `gorm:"column:totp_confirmed_at" json:"totp_confirmed_at,omitempty"`
+
 	// Relaciones
 	AccountUsers   []AccountUser    `gorm:"foreignKey:UserID" json:"account_users,omitempty"`   // cuentas del usuario (N:M)
 	Documents      []Document       `gorm:"foreignKey:OwnerID" json:"documents,omitempty"`      // documentos de los que es propietario

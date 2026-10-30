@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/mail"
 	"strings"
+	"time"
 
 	"securityBank_server/internal/models"
 	"securityBank_server/internal/repositories"
@@ -134,6 +135,8 @@ func (s *UserService) Register(
 	surname string,
 	dni string,
 	keyMaterial UserKeyMaterial,
+	totpSecret []byte,
+	totpEnabled bool,
 ) (*models.User, *models.Account, error) {
 
 	// Normalizamos y validamos el email, la clave de autenticación y el DNI.
@@ -217,6 +220,13 @@ func (s *UserService) Register(
 		PrivateKeysVersion:     &validatedKeys.version,
 		FailedLoginAttempts:    0,
 		LastFailedLoginAttempt: nil,
+	}
+
+	if len(totpSecret) > 0 && totpEnabled {
+		user.TotpSecret = totpSecret
+		user.TotpEnabled = true
+		now := time.Now()
+		user.TotpConfirmedAt = &now
 	}
 
 	iban, err := GenerateSpanishIBAN("0036", "1234")
