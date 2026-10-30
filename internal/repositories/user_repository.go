@@ -193,3 +193,79 @@ func (r *UserRepository) CreateWithAccount(
 	return account, nil
 }
 
+// Guarda el secreto TOTP cifrado.
+// Se utiliza tanto durante la configuración inicial como para sustituir
+// una configuración pendiente.
+func (r *UserRepository) SaveTOTPSecret(
+	ctx context.Context,
+	userID int64,
+	encryptedSecret []byte,
+) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"totp_secret":       encryptedSecret,
+			"totp_enabled":      false,
+			"totp_confirmed_at": nil,
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
+}
+
+// Activa el TOTP después de comprobar correctamente el primer código.
+func (r *UserRepository) EnableTOTP(
+	ctx context.Context,
+	userID int64,
+) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("id = ? AND totp_secret IS NOT NULL", userID).
+		Updates(map[string]interface{}{
+			"totp_enabled":      true,
+			"totp_confirmed_at": time.Now(),
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
+}
+
+// Desactiva el TOTP y elimina el secreto almacenado.
+func (r *UserRepository) DisableTOTP(
+	ctx context.Context,
+	userID int64,
+) error {
+	result := r.db.WithContext(ctx).
+		Model(&models.User{}).
+		Where("id = ?", userID).
+		Updates(map[string]interface{}{
+			"totp_secret":       nil,
+			"totp_enabled":      false,
+			"totp_confirmed_at": nil,
+		})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return ErrUserNotFound
+	}
+
+	return nil
+}

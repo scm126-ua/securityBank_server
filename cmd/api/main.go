@@ -98,16 +98,35 @@ func main() {
 		&serverPrivateKey.PublicKey,
 	)
 
+	totpKey, err := services.DecodeTOTPEncryptionKey(cfg.TOTPEncryptionKey)
+	if err != nil {
+		log.Fatalf("error configurando clave de cifrado TOTP: %v", err)
+	}
+	totpService, err := services.NewTOTPService(userRepository, totpKey)
+	if err != nil {
+		log.Fatalf("error creando servicio TOTP: %v", err)
+	}
+	totpHandler := handlers.NewTOTPHandler(totpService)
+
 	// Login y registro
 	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService))
-	api.POST("/login/verify", handlers.VerifyLogin(userService, challengeService, serverPrivateKey))
-	api.POST("/register", handlers.Register(userService))
+	api.POST("/login/verify", handlers.VerifyLogin(userService, challengeService, serverPrivateKey, totpService))
+	api.POST("/register", handlers.Register(userService, totpService))
+	api.POST("/totp/generate", totpHandler.Generate)
 
 	// Cuentas bancarias y operaciones protegidas
 	revokedTokens := services.NewRevokedTokens()
 	protected := api.Group("/")
 	protected.Use(middleware.AuthMiddleware(&serverPrivateKey.PublicKey, revokedTokens))
 	protected.POST("/logout", handlers.Logout(revokedTokens))
+
+	// Configuración 2FA (TOTP)
+	totpRoutes := protected.Group("/totp")
+	totpRoutes.GET("/status", totpHandler.Status)
+	totpRoutes.POST("/setup", totpHandler.Setup)
+	totpRoutes.POST("/enable", totpHandler.Enable)
+	totpRoutes.POST("/verify", totpHandler.Verify)
+	totpRoutes.POST("/disable", totpHandler.Disable)
 
 	protected.GET("/accounts", handlers.FindUserAccounts(accountService))
 	protected.POST("/accounts", handlers.CreateAccount(accountService))

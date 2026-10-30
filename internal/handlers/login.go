@@ -20,7 +20,7 @@ import (
 const sessionDuration = time.Hour
 
 type LoginRequest struct {
-	Email   string `json:"email" binding:"required"`
+	Email    string `json:"email" binding:"required"`
 	AuthKey  string `json:"auth_key"`
 	Password string `json:"password"`
 }
@@ -28,6 +28,7 @@ type LoginRequest struct {
 type LoginVerificationRequest struct {
 	ChallengeID string `json:"challenge_id" binding:"required"`
 	Signature   string `json:"signature" binding:"required"`
+	TotpCode    string `json:"totp_code"`
 }
 
 type RegisterRequest struct {
@@ -40,6 +41,8 @@ type RegisterRequest struct {
 	PublicKey        string                  `json:"public_key" binding:"required"`
 	SigningPublicKey string                  `json:"signing_public_key" binding:"required"`
 	PrivateKeyBundle PrivateKeyBundleRequest `json:"private_key_bundle" binding:"required"`
+	TotpSecret       string                  `json:"totp_secret"`
+	TotpCode         string                  `json:"totp_code"`
 }
 
 type PrivateKeyBundleRequest struct {
@@ -129,6 +132,7 @@ func StartLogin(
 			"challenge":          base64.StdEncoding.EncodeToString(challenge),
 			"expires_at":         expiresAt,
 			"private_key_bundle": privateKeyBundle,
+			"totp_required":      user.TotpEnabled,
 		})
 	}
 
@@ -156,6 +160,7 @@ func VerifyLogin(
 	userService *services.UserService,
 	challengeService *services.AuthChallengeService,
 	serverPrivateKey *rsa.PrivateKey,
+	totpService *services.TOTPService,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var input LoginVerificationRequest
@@ -179,6 +184,18 @@ func VerifyLogin(
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Firma del desafío no válida"})
 			return
+		}
+
+		if user.TotpEnabled {
+			if input.TotpCode == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Se requiere el código de verificación 2FA"})
+				return
+			}
+
+			if err := totpService.VerifyTOTP(c.Request.Context(), user.ID, input.TotpCode); err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Código 2FA incorrecto"})
+				return
+			}
 		}
 
 		if err := userService.ResetFailedLoginAttempts(
@@ -233,13 +250,12 @@ func createJWT(userID int64, serverPrivateKey *rsa.PrivateKey) (string, error) {
 	return token.SignedString(serverPrivateKey)
 }
 
-
 func setSessionCookie(c *gin.Context, token string, maxAge int) {
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(middleware.SessionCookieName, token, maxAge, "/api", "", true, true)
 }
 
-func Register(userService *services.UserService) gin.HandlerFunc {
+func Register(userService *services.UserService, totpService *services.TOTPService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var input RegisterRequest
 
@@ -251,81 +267,113 @@ func Register(userService *services.UserService) gin.HandlerFunc {
 			return
 		}
 
-		authKey := input.AuthKey
-		if authKey == "" && input.Password != "" {
-			hash := sha256.Sum256([]byte(input.Password))
-			authKey = base64.StdEncoding.EncodeToString(hash[:])
-		}
-		if authKey == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Se requiere auth_key o password"})
-			return
-		}
+		var encryptedSecret []byte
+		var totpEnabled bool
 
-		// Llamamos al servicio de registro
-		user, account, err := userService.Register(
-			c.Request.Context(),
-			input.Email,
-			authKey,
-			input.Name,
-			input.Surname,
-			input.DNI,
-			services.UserKeyMaterial{
-				PublicKey:        input.PublicKey,
-				SigningPublicKey: input.SigningPublicKey,
-				PrivateKeys: services.PrivateKeyBundle{
-					Version:    input.PrivateKeyBundle.Version,
-					Algorithm:  input.PrivateKeyBundle.Algorithm,
-					KDF:        input.PrivateKeyBundle.KDF,
-					Iterations: input.PrivateKeyBundle.Iterations,
-					Salt:       input.PrivateKeyBundle.Salt,
-					Nonce:      input.PrivateKeyBundle.Nonce,
-					Ciphertext: input.PrivateKeyBundle.Ciphertext,
+		if input.TotpSecret != "" || input.TotpCode != "" {
+			if input.TotpSecret == "" || input.TotpCode == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "Para activar 2FA se requiere tanto el secreto como el código de verificación",
+				})
+				return
+			}
+
+			valid, err := totpService.ValidateCode(input.TotpSecret, input.TotpCode)
+			if err != nil || !valid {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "El código 2FA no es válido",
+				})
+				return
+			}
+
+			encSecret, err := totpService.EncryptSecret(input.TotpSecret)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": "Error al procesar el secreto 2FA",
+				})
+				return
+			}
+			encryptedSecret = encSecret
+			totpEnabled = true
+
+			authKey := input.AuthKey
+			if authKey == "" && input.Password != "" {
+				hash := sha256.Sum256([]byte(input.Password))
+				authKey = base64.StdEncoding.EncodeToString(hash[:])
+			}
+			if authKey == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Se requiere auth_key o password"})
+				return
+			}
+
+			// Llamamos al servicio de registro
+			user, account, err := userService.Register(
+				c.Request.Context(),
+				input.Email,
+				authKey,
+				input.Name,
+				input.Surname,
+				input.DNI,
+				services.UserKeyMaterial{
+					PublicKey:        input.PublicKey,
+					SigningPublicKey: input.SigningPublicKey,
+					PrivateKeys: services.PrivateKeyBundle{
+						Version:    input.PrivateKeyBundle.Version,
+						Algorithm:  input.PrivateKeyBundle.Algorithm,
+						KDF:        input.PrivateKeyBundle.KDF,
+						Iterations: input.PrivateKeyBundle.Iterations,
+						Salt:       input.PrivateKeyBundle.Salt,
+						Nonce:      input.PrivateKeyBundle.Nonce,
+						Ciphertext: input.PrivateKeyBundle.Ciphertext,
+					},
 				},
-			},
-		)
-		switch {
-		case errors.Is(err, services.ErrInvalidEmail):
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "El correo electrónico no es válido",
+				encryptedSecret,
+				totpEnabled,
+			)
+			switch {
+			case errors.Is(err, services.ErrInvalidEmail):
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "El correo electrónico no es válido",
+				})
+				return
+			case errors.Is(err, services.ErrInvalidAuthKey):
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "La clave de autenticación no es válida",
+				})
+				return
+			case errors.Is(err, services.ErrInvalidDNI):
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "El DNI no es válido",
+				})
+				return
+			case errors.Is(err, services.ErrInvalidKeyMaterial):
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "Las claves criptográficas no son válidas",
+				})
+				return
+			case errors.Is(err, services.ErrEmailExists):
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "El correo electrónico ya está registrado",
+				})
+				return
+			case errors.Is(err, services.ErrDNIExists):
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "El DNI ya está registrado",
+				})
+				return
+			case err != nil:
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": "No se pudo completar el registro",
+				})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"status":  "ok",
+				"user":    user,
+				"account": account,
 			})
-			return
-		case errors.Is(err, services.ErrInvalidAuthKey):
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "La clave de autenticación no es válida",
-			})
-			return
-		case errors.Is(err, services.ErrInvalidDNI):
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "El DNI no es válido",
-			})
-			return
-		case errors.Is(err, services.ErrInvalidKeyMaterial):
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Las claves criptográficas no son válidas",
-			})
-			return
-		case errors.Is(err, services.ErrEmailExists):
-			c.JSON(http.StatusConflict, gin.H{
-				"error": "El correo electrónico ya está registrado",
-			})
-			return
-		case errors.Is(err, services.ErrDNIExists):
-			c.JSON(http.StatusConflict, gin.H{
-				"error": "El DNI ya está registrado",
-			})
-			return
-		case err != nil:
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "No se pudo completar el registro",
-			})
-			return
+
 		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "ok",
-			"user":    user,
-			"account": account,
-		})
-
 	}
 }
