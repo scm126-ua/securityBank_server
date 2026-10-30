@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -20,7 +21,8 @@ const sessionDuration = time.Hour
 
 type LoginRequest struct {
 	Email   string `json:"email" binding:"required"`
-	AuthKey string `json:"auth_key" binding:"required"`
+	AuthKey  string `json:"auth_key"`
+	Password string `json:"password"`
 }
 
 type LoginVerificationRequest struct {
@@ -30,7 +32,8 @@ type LoginVerificationRequest struct {
 
 type RegisterRequest struct {
 	Email            string                  `json:"email" binding:"required,email"`
-	AuthKey          string                  `json:"auth_key" binding:"required"`
+	AuthKey          string                  `json:"auth_key"`
+	Password         string                  `json:"password"`
 	Name             string                  `json:"name" binding:"required"`
 	Surname          string                  `json:"surname" binding:"required"`
 	DNI              string                  `json:"dni" binding:"required"`
@@ -62,6 +65,16 @@ func StartLogin(
 			return
 		}
 
+		authKey := input.AuthKey
+		if authKey == "" && input.Password != "" {
+			hash := sha256.Sum256([]byte(input.Password))
+			authKey = base64.StdEncoding.EncodeToString(hash[:])
+		}
+		if authKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Se requiere auth_key o password"})
+			return
+		}
+
 		// Comprobamos si está bloqueado
 		existingUser, err := userService.FindUserByEmail(c, input.Email)
 
@@ -69,7 +82,7 @@ func StartLogin(
 			return
 		}
 
-		user, err := userService.Login(c.Request.Context(), input.Email, input.AuthKey)
+		user, err := userService.Login(c.Request.Context(), input.Email, authKey)
 		if err != nil {
 			// Registrar el intento fallido en backend y comprobar bloqueo
 			if existingUser != nil {
@@ -238,11 +251,21 @@ func Register(userService *services.UserService) gin.HandlerFunc {
 			return
 		}
 
+		authKey := input.AuthKey
+		if authKey == "" && input.Password != "" {
+			hash := sha256.Sum256([]byte(input.Password))
+			authKey = base64.StdEncoding.EncodeToString(hash[:])
+		}
+		if authKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Se requiere auth_key o password"})
+			return
+		}
+
 		// Llamamos al servicio de registro
 		user, account, err := userService.Register(
 			c.Request.Context(),
 			input.Email,
-			input.AuthKey,
+			authKey,
 			input.Name,
 			input.Surname,
 			input.DNI,
