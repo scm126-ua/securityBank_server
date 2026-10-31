@@ -3,15 +3,28 @@ package main
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/hmac"
+	"crypto/pbkdf2"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
-
-	"github.com/joho/godotenv"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 
 	"securityBank_server/internal/config"
 	"securityBank_server/internal/database"
@@ -20,6 +33,16 @@ import (
 	"securityBank_server/internal/repositories"
 	"securityBank_server/internal/services"
 	"securityBank_server/middleware"
+)
+
+// Replica las condiciones de crypto.js del frontend para crear un usuario.
+// Deben coincidir exactamente o el administrador no podrá iniciar sesión.
+const (
+	pbkdf2Iterations = 600000
+	masterKeyContext = "securitybank-master-key-v2:"
+	authKeyLabel     = "securitybank-auth-key-v2"
+	privateKeysLabel = "securitybank-private-keys-v2"
+	bundleContext    = "securitybank-private-key-bundle-v2"
 )
 
 func main() {
@@ -104,6 +127,15 @@ func main() {
 		}
 	}
 
+	userRepository := repositories.NewUserRepository(db)
+	userService := services.NewUserService(userRepository, serverPrivateKey)
+
+	// Seed del administrador: solo si el esquema está completo y la clave de
+	// datos ya se ha verificado. Nunca impide que el servidor arranque.
+	if len(missing) == 0 {
+		seedAdmin(context.Background(), db, userRepository, userService)
+	}
+
 	router := gin.Default()
 
 	// No hay ningún proxy delante del backend: no confiamos en cabeceras
@@ -125,9 +157,6 @@ func main() {
 	api.GET("/health", handlers.Health)
 	api.GET("/health/db", handlers.HealthDB(db))
 	api.GET("/server/public-key", handlers.ServerPublicIdentity(serverPrivateKey))
-
-	userRepository := repositories.NewUserRepository(db)
-	userService := services.NewUserService(userRepository, serverPrivateKey)
 
 	loginAuditRepository := repositories.NewLoginAuditRepository(db)
 
@@ -202,4 +231,172 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("error del servidor HTTP: %v", err)
 	}
+}
+
+// seedAdmin crea o promociona un administrador solo si ADMIN_EMAIL está
+// definido. Es idempotente y nunca detiene el arranque: si algo falla, lo
+// registra en el log y el servidor continúa.
+func seedAdmin(
+	ctx context.Context,
+	db *gorm.DB,
+	userRepo *repositories.UserRepository,
+	userService *services.UserService,
+) {
+	email := strings.ToLower(strings.TrimSpace(os.Getenv("ADMIN_EMAIL")))
+	if email == "" {
+		return
+	}
+
+	existing, err := userRepo.FindByEmail(ctx, email)
+	switch {
+	case err == nil:
+		if existing.Role != models.UserRoleAdmin {
+			promote(db, existing.ID, email)
+		}
+		return
+	case !errors.Is(err, repositories.ErrUserNotFound):
+		log.Printf("AVISO seed admin: buscando usuario: %v", err)
+		return
+	}
+
+	password := os.Getenv("ADMIN_PASSWORD")
+	dni := os.Getenv("ADMIN_DNI")
+	if password == "" || dni == "" {
+		log.Printf("AVISO seed admin: faltan ADMIN_PASSWORD o ADMIN_DNI")
+		return
+	}
+	name := envOr("ADMIN_NAME", "Admin")
+	surname := envOr("ADMIN_SURNAME", "Sistema")
+
+	master, err := deriveMasterKey(email, password)
+	if err != nil {
+		log.Printf("AVISO seed admin: derivando clave: %v", err)
+		return
+	}
+	authKey := base64.StdEncoding.EncodeToString(hmacSHA256(master, []byte(authKeyLabel)))
+
+	keyMaterial, err := buildKeyMaterial(master)
+	if err != nil {
+		log.Printf("AVISO seed admin: generando claves: %v", err)
+		return
+	}
+
+	user, _, err := userService.Register(
+		ctx, email, authKey, name, surname, dni, *keyMaterial, nil, false,
+	)
+	if err != nil {
+		log.Printf("AVISO seed admin: registrando: %v", err)
+		return
+	}
+	promote(db, user.ID, email)
+}
+
+func promote(db *gorm.DB, userID int64, email string) {
+	res := db.Model(&models.User{}).
+		Where("id = ?", userID).
+		Update("role", models.UserRoleAdmin)
+	if res.Error != nil {
+		log.Printf("AVISO seed admin: no se pudo asignar ADMIN: %v", res.Error)
+		return
+	}
+	log.Printf("seed admin: %s es ahora %s", email, models.UserRoleAdmin)
+}
+
+// deriveMasterKey replica deriveMasterKey() del frontend.
+func deriveMasterKey(email, password string) ([]byte, error) {
+	return pbkdf2.Key(
+		sha256.New,
+		password,
+		[]byte(masterKeyContext+email),
+		pbkdf2Iterations,
+		32,
+	)
+}
+
+func hmacSHA256(key []byte, parts ...[]byte) []byte {
+	mac := hmac.New(sha256.New, key)
+	for _, p := range parts {
+		mac.Write(p)
+	}
+	return mac.Sum(nil)
+}
+
+// buildKeyMaterial replica generateUserKeyPairs() + encryptPrivateKeys().
+func buildKeyMaterial(master []byte) (*services.UserKeyMaterial, error) {
+	encKey, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		return nil, err
+	}
+	signKey, err := rsa.GenerateKey(rand.Reader, 3072)
+	if err != nil {
+		return nil, err
+	}
+
+	encPub, err := x509.MarshalPKIXPublicKey(&encKey.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	signPub, err := x509.MarshalPKIXPublicKey(&signKey.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	encPriv, err := x509.MarshalPKCS8PrivateKey(encKey)
+	if err != nil {
+		return nil, err
+	}
+	signPriv, err := x509.MarshalPKCS8PrivateKey(signKey)
+	if err != nil {
+		return nil, err
+	}
+
+	b64 := base64.StdEncoding.EncodeToString
+	plaintext, err := json.Marshal(map[string]string{
+		"encryption": b64(encPriv),
+		"signing":    b64(signPriv),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	salt := make([]byte, 16)
+	nonce := make([]byte, 12)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+
+	aesKey := hmacSHA256(master, []byte(privateKeysLabel), salt)
+	block, err := aes.NewCipher(aesKey)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	// Igual que WebCrypto: el tag de 16 bytes va al final del ciphertext.
+	ciphertext := gcm.Seal(nil, nonce, plaintext, []byte(bundleContext))
+
+	return &services.UserKeyMaterial{
+		PublicKey:        b64(encPub),
+		SigningPublicKey: b64(signPub),
+		PrivateKeys: services.PrivateKeyBundle{
+			Version:    2,
+			Algorithm:  "AES-256-GCM",
+			KDF:        "PBKDF2-HMAC-SHA256+HMAC-SHA256",
+			Iterations: pbkdf2Iterations,
+			Salt:       b64(salt),
+			Nonce:      b64(nonce),
+			Ciphertext: b64(ciphertext),
+		},
+	}, nil
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
