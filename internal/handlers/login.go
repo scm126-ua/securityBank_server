@@ -6,12 +6,16 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 
+	"securityBank_server/internal/models"
+	"securityBank_server/internal/repositories"
 	"securityBank_server/internal/services"
 	"securityBank_server/middleware"
 )
@@ -56,10 +60,11 @@ type PrivateKeyBundleRequest struct {
 }
 
 // Inicia un acceso después de comprobar la contraseña y entrega un desafío.
-// Los intentos fallidos se registran aquí mismo en el backend.
+// Cada intento queda registrado en login_audit_events.
 func StartLogin(
 	userService *services.UserService,
 	challengeService *services.AuthChallengeService,
+	loginAuditRepository *repositories.LoginAuditRepository,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var input LoginRequest
@@ -68,29 +73,49 @@ func StartLogin(
 			return
 		}
 
+		// Normalizamos una sola vez para que la comprobación de bloqueo, el
+		// login y la auditoría usen siempre el mismo email.
+		email := normalizeLoginEmail(input.Email)
+
 		authKey := input.AuthKey
 		if authKey == "" && input.Password != "" {
 			hash := sha256.Sum256([]byte(input.Password))
 			authKey = base64.StdEncoding.EncodeToString(hash[:])
 		}
 		if authKey == "" {
+			recordLoginAuditOrLog(c, loginAuditRepository, email, nil, models.LoginAuditResultFailed)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Se requiere auth_key o password"})
 			return
 		}
 
 		// Comprobamos si está bloqueado
-		existingUser, err := userService.FindUserByEmail(c, input.Email)
+		existingUser, err := userService.FindUserByEmail(c, email)
 
 		if err == nil && rejectIfLocked(c, existingUser.LockedUntil) {
+			recordLoginAuditOrLog(
+				c, loginAuditRepository, email,
+				&existingUser.ID, models.LoginAuditResultFailed,
+			)
 			return
 		}
 
-		user, err := userService.Login(c.Request.Context(), input.Email, authKey)
+		user, err := userService.Login(c.Request.Context(), email, authKey)
 		if err != nil {
+			result := models.LoginAuditResultFailed
+			var userID *int64
+			if existingUser != nil {
+				userID = &existingUser.ID
+			}
+			if errors.Is(err, repositories.ErrUserNotFound) {
+				result = models.LoginAuditResultAccountNotFound
+				userID = nil
+			}
+			recordLoginAuditOrLog(c, loginAuditRepository, email, userID, result)
+
 			// Registrar el intento fallido en backend y comprobar bloqueo
 			if existingUser != nil {
 				updatedUser, addErr := userService.AddFailedLoginAttempt(
-					c.Request.Context(), input.Email,
+					c.Request.Context(), email,
 				)
 
 				if addErr == nil && updatedUser.LockedUntil != nil &&
@@ -112,17 +137,42 @@ func StartLogin(
 
 		privateKeyBundle, err := services.PrivateKeyBundleForUser(user)
 		if errors.Is(err, services.ErrKeyMaterialUnavailable) {
+			recordLoginAuditOrLog(
+				c, loginAuditRepository, email,
+				&user.ID, models.LoginAuditResultFailed,
+			)
 			c.JSON(http.StatusConflict, gin.H{"error": "El usuario no tiene claves criptográficas"})
 			return
 		}
 		if err != nil {
+			recordLoginAuditOrLog(
+				c, loginAuditRepository, email,
+				&user.ID, models.LoginAuditResultFailed,
+			)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo iniciar sesión"})
 			return
 		}
 
 		challengeID, challenge, expiresAt, err := challengeService.Create(user.ID)
 		if err != nil {
+			recordLoginAuditOrLog(
+				c, loginAuditRepository, email,
+				&user.ID, models.LoginAuditResultFailed,
+			)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "No se pudo generar el desafío"})
+			return
+		}
+
+		// Si no se puede auditar un login correcto, no se entrega el desafío:
+		// preferimos fallar antes que abrir una sesión sin rastro.
+		if err := recordLoginAudit(
+			c, loginAuditRepository, email,
+			&user.ID, models.LoginAuditResultSuccessful,
+		); err != nil {
+			log.Printf("error auditando un login correcto: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "No se pudo registrar el intento de inicio de sesión",
+			})
 			return
 		}
 
@@ -136,6 +186,61 @@ func StartLogin(
 		})
 	}
 
+}
+
+const (
+	loginAuditEmailMaxRunes     = 320
+	loginAuditIPMaxRunes        = 45
+	loginAuditUserAgentMaxRunes = 512
+)
+
+// normalizeLoginEmail aplica la misma normalización que el servicio de login.
+func normalizeLoginEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+// recordLoginAudit guarda el intento sin incluir credenciales.
+func recordLoginAudit(
+	c *gin.Context,
+	repository *repositories.LoginAuditRepository,
+	email string,
+	userID *int64,
+	result string,
+) error {
+	if repository == nil {
+		return nil
+	}
+
+	return repository.Record(c.Request.Context(), &models.LoginAuditEvent{
+		UserID:    userID,
+		Email:     truncateRunes(email, loginAuditEmailMaxRunes),
+		IPAddress: truncateRunes(c.ClientIP(), loginAuditIPMaxRunes),
+		UserAgent: truncateRunes(c.Request.UserAgent(), loginAuditUserAgentMaxRunes),
+		Result:    result,
+	})
+}
+
+// recordLoginAuditOrLog no interrumpe la respuesta de error si la auditoría
+// falla, pero deja constancia en los logs del servidor.
+func recordLoginAuditOrLog(
+	c *gin.Context,
+	repository *repositories.LoginAuditRepository,
+	email string,
+	userID *int64,
+	result string,
+) {
+	if err := recordLoginAudit(c, repository, email, userID, result); err != nil {
+		log.Printf("AVISO: no se pudo auditar el intento de login: %v", err)
+	}
+}
+
+// truncateRunes limita el texto al máximo de caracteres de la columna.
+func truncateRunes(value string, max int) string {
+	runes := []rune(value)
+	if len(runes) <= max {
+		return value
+	}
+	return string(runes[:max])
 }
 
 func rejectIfLocked(c *gin.Context, lockedUntil *time.Time) bool {

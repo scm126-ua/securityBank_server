@@ -129,6 +129,8 @@ func main() {
 	userRepository := repositories.NewUserRepository(db)
 	userService := services.NewUserService(userRepository, serverPrivateKey)
 
+	loginAuditRepository := repositories.NewLoginAuditRepository(db)
+
 	accountRepository := repositories.NewAccountRepository(db)
 	accountService := services.NewAccountService(accountRepository, serverPrivateKey)
 	challengeService := services.NewAuthChallengeService()
@@ -150,7 +152,7 @@ func main() {
 	totpHandler := handlers.NewTOTPHandler(totpService)
 
 	// Login y registro
-	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService))
+	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService, loginAuditRepository))
 	api.POST("/login/verify", handlers.VerifyLogin(userService, challengeService, serverPrivateKey, totpService))
 	api.POST("/register", handlers.Register(userService, totpService))
 	api.POST("/totp/generate", totpHandler.Generate)
