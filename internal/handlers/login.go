@@ -270,6 +270,8 @@ func Register(userService *services.UserService, totpService *services.TOTPServi
 		var encryptedSecret []byte
 		var totpEnabled bool
 
+		// El 2FA es opcional en el registro. Si el usuario lo activa, deben
+		// llegar tanto el secreto como el código, y el código debe ser válido.
 		if input.TotpSecret != "" || input.TotpCode != "" {
 			if input.TotpSecret == "" || input.TotpCode == "" {
 				c.JSON(http.StatusBadRequest, gin.H{
@@ -295,85 +297,84 @@ func Register(userService *services.UserService, totpService *services.TOTPServi
 			}
 			encryptedSecret = encSecret
 			totpEnabled = true
-
-			authKey := input.AuthKey
-			if authKey == "" && input.Password != "" {
-				hash := sha256.Sum256([]byte(input.Password))
-				authKey = base64.StdEncoding.EncodeToString(hash[:])
-			}
-			if authKey == "" {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Se requiere auth_key o password"})
-				return
-			}
-
-			// Llamamos al servicio de registro
-			user, account, err := userService.Register(
-				c.Request.Context(),
-				input.Email,
-				authKey,
-				input.Name,
-				input.Surname,
-				input.DNI,
-				services.UserKeyMaterial{
-					PublicKey:        input.PublicKey,
-					SigningPublicKey: input.SigningPublicKey,
-					PrivateKeys: services.PrivateKeyBundle{
-						Version:    input.PrivateKeyBundle.Version,
-						Algorithm:  input.PrivateKeyBundle.Algorithm,
-						KDF:        input.PrivateKeyBundle.KDF,
-						Iterations: input.PrivateKeyBundle.Iterations,
-						Salt:       input.PrivateKeyBundle.Salt,
-						Nonce:      input.PrivateKeyBundle.Nonce,
-						Ciphertext: input.PrivateKeyBundle.Ciphertext,
-					},
-				},
-				encryptedSecret,
-				totpEnabled,
-			)
-			switch {
-			case errors.Is(err, services.ErrInvalidEmail):
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error": "El correo electrónico no es válido",
-				})
-				return
-			case errors.Is(err, services.ErrInvalidAuthKey):
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error": "La clave de autenticación no es válida",
-				})
-				return
-			case errors.Is(err, services.ErrInvalidDNI):
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error": "El DNI no es válido",
-				})
-				return
-			case errors.Is(err, services.ErrInvalidKeyMaterial):
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error": "Las claves criptográficas no son válidas",
-				})
-				return
-			case errors.Is(err, services.ErrEmailExists):
-				c.JSON(http.StatusConflict, gin.H{
-					"error": "El correo electrónico ya está registrado",
-				})
-				return
-			case errors.Is(err, services.ErrDNIExists):
-				c.JSON(http.StatusConflict, gin.H{
-					"error": "El DNI ya está registrado",
-				})
-				return
-			case err != nil:
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error": "No se pudo completar el registro",
-				})
-				return
-			}
-
-			c.JSON(http.StatusOK, gin.H{
-				"status":  "ok",
-				"user":    user,
-				"account": account,
-			})
-
 		}
+
+		authKey := input.AuthKey
+		if authKey == "" && input.Password != "" {
+			hash := sha256.Sum256([]byte(input.Password))
+			authKey = base64.StdEncoding.EncodeToString(hash[:])
+		}
+		if authKey == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Se requiere auth_key o password"})
+			return
+		}
+
+		// Llamamos al servicio de registro
+		user, account, err := userService.Register(
+			c.Request.Context(),
+			input.Email,
+			authKey,
+			input.Name,
+			input.Surname,
+			input.DNI,
+			services.UserKeyMaterial{
+				PublicKey:        input.PublicKey,
+				SigningPublicKey: input.SigningPublicKey,
+				PrivateKeys: services.PrivateKeyBundle{
+					Version:    input.PrivateKeyBundle.Version,
+					Algorithm:  input.PrivateKeyBundle.Algorithm,
+					KDF:        input.PrivateKeyBundle.KDF,
+					Iterations: input.PrivateKeyBundle.Iterations,
+					Salt:       input.PrivateKeyBundle.Salt,
+					Nonce:      input.PrivateKeyBundle.Nonce,
+					Ciphertext: input.PrivateKeyBundle.Ciphertext,
+				},
+			},
+			encryptedSecret,
+			totpEnabled,
+		)
+		switch {
+		case errors.Is(err, services.ErrInvalidEmail):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "El correo electrónico no es válido",
+			})
+			return
+		case errors.Is(err, services.ErrInvalidAuthKey):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "La clave de autenticación no es válida",
+			})
+			return
+		case errors.Is(err, services.ErrInvalidDNI):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "El DNI no es válido",
+			})
+			return
+		case errors.Is(err, services.ErrInvalidKeyMaterial):
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Las claves criptográficas no son válidas",
+			})
+			return
+		case errors.Is(err, services.ErrEmailExists):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "El correo electrónico ya está registrado",
+			})
+			return
+		case errors.Is(err, services.ErrDNIExists):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "El DNI ya está registrado",
+			})
+			return
+		case err != nil:
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "No se pudo completar el registro",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"user":    user,
+			"account": account,
+		})
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/shopspring/decimal"
+	"gorm.io/gorm"
 )
 
 // Valores permitidos para Account.Status (CHECK de accounts.status).
@@ -14,8 +15,9 @@ const (
 
 // Account representa la tabla accounts (cuentas bancarias simuladas).
 type Account struct {
-	ID   int64  `gorm:"column:id;primaryKey" json:"id"`
-	IBAN string `gorm:"column:iban" json:"iban"`
+	ID       int64           `gorm:"column:id;primaryKey" json:"id"`
+	IBAN     EncryptedString `gorm:"column:iban" json:"iban"`
+	IBANHash string          `gorm:"column:iban_hash" json:"-"`
 	// NUMERIC(18,2): decimal exacto. No puede ser negativo (CHECK en SQL).
 	Balance   decimal.Decimal `gorm:"column:balance" json:"balance"`
 	Status    string          `gorm:"column:status;default:ACTIVE" json:"status"`
@@ -29,3 +31,17 @@ type Account struct {
 
 // TableName indica a GORM el nombre de la tabla.
 func (Account) TableName() string { return "accounts" }
+
+func (a *Account) BeforeCreate(tx *gorm.DB) error {
+	if a.IBAN != "" {
+		a.IBANHash = HashBlindIndex(GetDataEncryptionKey(), string(a.IBAN))
+	}
+	return nil
+}
+
+func (a *Account) BeforeSave(tx *gorm.DB) error {
+	if a.IBAN != "" {
+		a.IBANHash = HashBlindIndex(GetDataEncryptionKey(), string(a.IBAN))
+	}
+	return nil
+}

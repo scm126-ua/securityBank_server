@@ -206,7 +206,8 @@ func (s *UserService) Register(
 	user := &models.User{
 		Email:                  _email,
 		Name:                   strings.TrimSpace(name + " " + surname),
-		DNI:                    _dni,
+		DNI:                    models.EncryptedString(_dni),
+		DNIHash:                models.HashBlindIndex(models.GetDataEncryptionKey(), _dni),
 		Salt:                   salt,
 		PasswordHash:           passwordHash,
 		Role:                   models.UserRoleClient,

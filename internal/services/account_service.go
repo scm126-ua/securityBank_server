@@ -99,9 +99,9 @@ func (s *AccountService) CreateOwnershipCertificate(
 		AccountOwnershipData{
 			HolderID:   ownership.HolderID,
 			HolderName: ownership.HolderName,
-			HolderDNI:  ownership.HolderDNI,
+			HolderDNI:  string(ownership.HolderDNI),
 			AccountID:  ownership.AccountID,
-			IBAN:       ownership.IBAN,
+			IBAN:       string(ownership.IBAN),
 			Role:       ownership.Role,
 		},
 	)

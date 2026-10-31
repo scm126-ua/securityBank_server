@@ -68,6 +68,7 @@ services:
       BACKEND_PORT: ${BACKEND_PORT:-8080}
       CORS_ORIGIN: ${CORS_ORIGIN:-https://localhost:8443}
       TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
+      DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-}
     volumes:
       # El código del host se monta en el contenedor y Air detecta los cambios.
       - .:/app

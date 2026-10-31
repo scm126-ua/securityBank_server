@@ -305,12 +305,18 @@ func validateTOTP(secret string, code string) (bool, error) {
 	return valid, nil
 }
 
-// Utilidad para leer la clave desde una variable de entorno Base64.
-func DecodeTOTPEncryptionKey(encoded string) ([]byte, error) {
+// DecodeEncryptionKey decodifica una clave Base64 y comprueba que mide 32 bytes.
+func DecodeEncryptionKey(encoded string) ([]byte, error) {
 	key, err := base64.StdEncoding.DecodeString(encoded)
 	if err != nil || len(key) != 32 {
 		return nil, ErrTOTPEncryption
 	}
 
 	return key, nil
+}
+
+// Utilidad para leer la clave desde una variable de entorno Base64.
+// Se conserva por compatibilidad; las claves nuevas pueden usar DecodeEncryptionKey.
+func DecodeTOTPEncryptionKey(encoded string) ([]byte, error) {
+	return DecodeEncryptionKey(encoded)
 }

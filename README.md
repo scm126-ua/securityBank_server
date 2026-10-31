@@ -58,7 +58,21 @@ cp .env.example .env
 | `BACKEND_PORT`       | Puerto interno del backend (`8080`)                                      |
 | `HTTPS_PORT`         | Puerto HTTPS público del proxy (`8443`)                                  |
 | `CORS_ORIGIN`        | Origen del frontend permitido por CORS (`https://localhost:8443`)        |
+| `DATA_ENCRYPTION_KEY` | Clave Base64 de 32 bytes que cifra el DNI y el IBAN en PostgreSQL. **Obligatoria** |
+| `TOTP_ENCRYPTION_KEY` | Clave Base64 de 32 bytes que cifra los secretos 2FA. Distinta de la anterior |
 | `SERVER_KEY_FINGERPRINT` | Huella de la clave del servidor que exige el frontend (opcional, ver logs del backend) |
+
+Genera cada clave por separado (nunca reutilices la misma para DNI/IBAN y TOTP):
+
+```sh
+openssl rand -base64 32
+```
+
+`DATA_ENCRYPTION_KEY` no se puede perder: sin ella, los DNI e IBAN ya cifrados
+no se pueden descifrar. Tampoco debe cambiar entre reinicios ni compartirse entre
+entornos. Si falta, el backend no arranca (no usa ninguna clave por defecto). Al
+arrancar comprueba que la clave descifra una fila existente: si es incorrecta o
+los datos están manipulados, también se detiene en lugar de servir errores 500.
 
 - `.env` está excluido de Git: no subas nunca contraseñas ni credenciales reales.
 - PostgreSQL solo aplica `POSTGRES_USER` y `POSTGRES_PASSWORD` la primera vez que crea el
@@ -283,6 +297,66 @@ FROM document_audit_events ORDER BY id DESC;
   así que JavaScript no puede leer el token. Cerrar sesión (o recargar la página) lo revoca,
   pero las revocaciones se guardan en memoria: si el backend se reinicia, el token de una
   sesión cerrada vuelve a valer hasta que caduca (una hora como máximo).
+
+## Cifrado en reposo de DNI e IBAN
+
+El DNI (`users.dni`) y el IBAN (`accounts.iban`) se cifran **en el backend** con
+AES-256-GCM antes de llegar a PostgreSQL. La base de datos solo guarda `BYTEA`
+con el sobre cifrado; el texto plano existe en memoria del backend y en las
+respuestas de la API a las que el usuario tiene derecho (por ejemplo, su IBAN).
+
+### Formato y búsquedas
+
+| Medida | Para qué sirve |
+|--------|----------------|
+| AES-256-GCM con nonce aleatorio de 12 bytes | Confidencialidad e integridad: un byte manipulado hace fallar el descifrado |
+| Sobre `[versión(1)][nonce(12)][ciphertext][tag(16)]` | Permite cambiar de formato o de clave en versiones futuras sin ambigüedad |
+| AAD fijo `securitybank:sensitive-value:v1` | Ata el cifrado a este uso concreto |
+| Blind index HMAC-SHA256 en `dni_hash` / `iban_hash` | Búsquedas exactas y restricciones UNIQUE sin descifrar las columnas |
+| Subclave HMAC derivada de la clave maestra | AES-GCM y HMAC nunca reutilizan directamente el mismo material de clave |
+| Normalización (mayúsculas y sin espacios) | `12345678z` y ` 12345678Z ` son el mismo DNI; `ES85 0036...` y `ES850036...` el mismo IBAN |
+| Clave obligatoria y distinta de la de TOTP | Evita claves por defecto y separa los usos criptográficos |
+
+Consecuencias y límites:
+
+- Un blind index determinista permite saber si dos filas tienen el mismo DNI o
+  IBAN, pero no revela el valor. No sirve para búsquedas por prefijo ni por rango.
+- Quien tenga a la vez la base de datos y `DATA_ENCRYPTION_KEY` (por ejemplo, un
+  backend comprometido) puede descifrar los datos. El cifrado protege copias de
+  seguridad, discos y acceso directo a PostgreSQL, no a un servidor totalmente
+  comprometido.
+- Cambiar `DATA_ENCRYPTION_KEY` sin rotar antes los datos los deja ilegibles. La
+  rotación de clave no está implementada; el byte de versión deja espacio para
+  añadirla.
+
+### Migración de datos existentes
+
+La migración `000011_encrypt_dni_and_iban` convierte las columnas a `BYTEA`,
+añade `dni_hash`/`iban_hash` y sus índices UNIQUE. PostgreSQL no conoce
+`DATA_ENCRYPTION_KEY`, así que no puede cifrar el contenido existente. Lo hace
+el backend al arrancar (`database.BackfillSensitiveData`):
+
+1. Busca filas con `dni_hash` o `iban_hash` a `NULL` (datos anteriores al cifrado).
+2. Las cifra con la clave configurada y calcula su blind index.
+3. Si ya está todo migrado no hace nada; es idempotente.
+
+Los valores heredados en texto plano se pueden seguir leyendo mientras tanto
+(`EncryptedString.Scan` los acepta), pero en cuanto el backend arranca quedan
+cifrados. Después comprueba que la clave descifra una fila ya cifrada de `users`
+y otra de `accounts` (`database.VerifySensitiveDataKey`). Si un dato cifrado no se
+puede descifrar (clave incorrecta o manipulación), el backend **no arranca**: no
+expone ciphertext como si fuera un DNI.
+
+### Comprobarlo en DBeaver
+
+```sql
+-- El DNI y el IBAN no aparecen en claro.
+SELECT id, encode(dni, 'hex') AS dni_cifrado, dni_hash FROM users;
+SELECT id, encode(iban, 'hex') AS iban_cifrado, iban_hash FROM accounts;
+
+-- El mismo valor produce el mismo blind index; el cifrado, uno distinto en cada escritura.
+SELECT dni_hash, count(*) FROM users GROUP BY dni_hash;
+```
 
 ## Base de datos
 
