@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 // Valores permitidos para User.Role (CHECK de users.role).
 const (
@@ -13,13 +17,14 @@ const (
 // Solo se guardan claves públicas: las claves privadas nunca se almacenan
 // sin cifrar.
 type User struct {
-	ID           int64  `gorm:"column:id;primaryKey" json:"id"`
-	Name         string `gorm:"column:name" json:"name"`
-	DNI          string `gorm:"column:dni" json:"dni"`
-	Email        string `gorm:"column:email" json:"email"`
-	PasswordHash string `gorm:"column:password_hash" json:"-"` // json:"-": nunca se envía en las respuestas
-	Salt         string `gorm:"column:salt" json:"-"`
-	Role         string `gorm:"column:role" json:"role"`
+	ID           int64           `gorm:"column:id;primaryKey" json:"id"`
+	Name         string          `gorm:"column:name" json:"name"`
+	DNI          EncryptedString `gorm:"column:dni" json:"dni"`
+	DNIHash      string          `gorm:"column:dni_hash" json:"-"`
+	Email        string          `gorm:"column:email" json:"email"`
+	PasswordHash string          `gorm:"column:password_hash" json:"-"` // json:"-": nunca se envía en las respuestas
+	Salt         string          `gorm:"column:salt" json:"-"`
+	Role         string          `gorm:"column:role" json:"role"`
 	// NULL hasta completar el registro criptográfico.
 	PublicKey *string `gorm:"column:public_key" json:"public_key"`
 	// Clave pública para verificar las firmas digitales del usuario.
@@ -49,3 +54,17 @@ type User struct {
 
 // TableName indica a GORM el nombre de la tabla.
 func (User) TableName() string { return "users" }
+
+func (u *User) BeforeCreate(tx *gorm.DB) error {
+	if u.DNI != "" {
+		u.DNIHash = HashBlindIndex(GetDataEncryptionKey(), string(u.DNI))
+	}
+	return nil
+}
+
+func (u *User) BeforeSave(tx *gorm.DB) error {
+	if u.DNI != "" {
+		u.DNIHash = HashBlindIndex(GetDataEncryptionKey(), string(u.DNI))
+	}
+	return nil
+}

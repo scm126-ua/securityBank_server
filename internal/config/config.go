@@ -13,6 +13,7 @@ type Config struct {
 	CORSOrigin        string // Origen del frontend permitido por CORS (CORS_ORIGIN).
 	ServerKeyPath     string // Ruta de la clave privada del servidor (SERVER_KEY_PATH).
 	TOTPEncryptionKey string // Clave de cifrado para TOTP (TOTP_ENCRYPTION_KEY).
+	DataEncryptionKey string // Clave de cifrado para datos sensibles DNI e IBAN (DATA_ENCRYPTION_KEY).
 }
 
 // Load lee la configuración. DATABASE_URL es obligatoria; el resto de
@@ -25,10 +26,17 @@ func Load() (Config, error) {
 		CORSOrigin:        getEnv("CORS_ORIGIN", "https://localhost:8443"),
 		ServerKeyPath:     getEnv("SERVER_KEY_PATH", ".keys/server_private.pem"),
 		TOTPEncryptionKey: getEnv("TOTP_ENCRYPTION_KEY", "DuLMfen6unn7Nhmb3WMxo+xibIJS3LXo0dr3VaOcoMY="),
+		// La clave de datos sensibles es obligatoria y nunca reutiliza la de
+		// TOTP: cada uso criptográfico tiene su propio material de clave.
+		DataEncryptionKey: getEnv("DATA_ENCRYPTION_KEY", ""),
 	}
 
 	if cfg.DatabaseURL == "" {
 		return Config{}, errors.New("la variable de entorno DATABASE_URL es obligatoria")
+	}
+
+	if cfg.DataEncryptionKey == "" {
+		return Config{}, errors.New("la variable de entorno DATA_ENCRYPTION_KEY es obligatoria")
 	}
 
 	return cfg, nil

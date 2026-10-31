@@ -19,19 +19,17 @@ type AccountRepository struct {
 }
 
 type AccountOwnershipRecord struct {
-	HolderID   int64  `gorm:"column:holder_id"`
-	HolderName string `gorm:"column:holder_name"`
-	HolderDNI  string `gorm:"column:holder_dni"`
-	AccountID  int64  `gorm:"column:account_id"`
-	IBAN       string `gorm:"column:iban"`
-	Role       string `gorm:"column:role"`
+	HolderID   int64                  `gorm:"column:holder_id"`
+	HolderName string                 `gorm:"column:holder_name"`
+	HolderDNI  models.EncryptedString `gorm:"column:holder_dni"`
+	AccountID  int64                  `gorm:"column:account_id"`
+	IBAN       models.EncryptedString `gorm:"column:iban"`
+	Role       string                 `gorm:"column:role"`
 }
 
 func NewAccountRepository(db *gorm.DB) *AccountRepository {
 	return &AccountRepository{db: db}
 }
-
-
 
 // Buscar una cuenta por IBAN
 func (r *AccountRepository) FindByIBAN(
@@ -39,9 +37,10 @@ func (r *AccountRepository) FindByIBAN(
 	iban string,
 ) (*models.Account, error) {
 	var account models.Account
+	hash := models.HashBlindIndex(models.GetDataEncryptionKey(), iban)
 
 	err := r.db.WithContext(ctx).
-		Where("iban = ?", iban).
+		Where("iban_hash = ?", hash).
 		First(&account).Error
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -140,8 +139,9 @@ func createAccount(
 	iban string,
 ) (*models.Account, error) {
 	account := &models.Account{
-		IBAN:   iban,
-		Status: models.AccountStatusActive,
+		IBAN:     models.EncryptedString(iban),
+		IBANHash: models.HashBlindIndex(models.GetDataEncryptionKey(), iban),
+		Status:   models.AccountStatusActive,
 	}
 
 	if err := tx.Create(account).Error; err != nil {

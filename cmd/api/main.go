@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"log"
 	"net/http"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"securityBank_server/internal/config"
 	"securityBank_server/internal/database"
 	"securityBank_server/internal/handlers"
+	"securityBank_server/internal/models"
 	"securityBank_server/internal/repositories"
 	"securityBank_server/internal/services"
 	"securityBank_server/middleware"
@@ -28,6 +30,25 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("error de configuración: %v", err)
+	}
+
+	// Claves de cifrado en reposo. Se exige una clave distinta para los datos
+	// sensibles (DNI/IBAN) y para TOTP. Si alguna no es válida, no se arranca
+	// con una clave por defecto.
+	dataKey, err := services.DecodeEncryptionKey(cfg.DataEncryptionKey)
+	if err != nil {
+		log.Fatalf("error configurando clave de cifrado de datos sensibles: %v", err)
+	}
+	if err := models.SetDataEncryptionKey(dataKey); err != nil {
+		log.Fatalf("error configurando clave de cifrado de datos sensibles: %v", err)
+	}
+
+	totpKey, err := services.DecodeTOTPEncryptionKey(cfg.TOTPEncryptionKey)
+	if err != nil {
+		log.Fatalf("error configurando clave de cifrado TOTP: %v", err)
+	}
+	if subtle.ConstantTimeCompare(dataKey, totpKey) == 1 {
+		log.Fatal("DATA_ENCRYPTION_KEY y TOTP_ENCRYPTION_KEY deben ser claves distintas")
 	}
 
 	serverPrivateKey, err := services.LoadOrCreateServerKey(cfg.ServerKeyPath)
@@ -59,6 +80,30 @@ func main() {
 		log.Println("esquema de la base de datos comprobado: todas las tablas existen")
 	}
 
+	// La migración 000011 deja las columnas BYTEA, pero no puede cifrar su
+	// contenido porque no conoce DATA_ENCRYPTION_KEY. Completamos el cifrado de
+	// los DNI/IBAN heredados antes de atender peticiones.
+	if len(missing) == 0 {
+		backfill, err := database.BackfillSensitiveData(context.Background(), db)
+		if err != nil {
+			log.Fatalf("error cifrando los datos sensibles heredados: %v", err)
+		}
+		if backfill.Users > 0 || backfill.Accounts > 0 {
+			log.Printf(
+				"datos sensibles heredados cifrados: %d DNI y %d IBAN",
+				backfill.Users,
+				backfill.Accounts,
+			)
+		}
+
+		// Comprueba que la clave configurada descifra los datos ya existentes.
+		// Si es incorrecta, preferimos no arrancar antes que fallar en cada
+		// consulta con errores 500.
+		if err := database.VerifySensitiveDataKey(context.Background(), db); err != nil {
+			log.Fatalf("error verificando la clave de cifrado de datos sensibles: %v", err)
+		}
+	}
+
 	router := gin.Default()
 
 	// No hay ningún proxy delante del backend: no confiamos en cabeceras
@@ -84,6 +129,8 @@ func main() {
 	userRepository := repositories.NewUserRepository(db)
 	userService := services.NewUserService(userRepository, serverPrivateKey)
 
+	loginAuditRepository := repositories.NewLoginAuditRepository(db)
+
 	accountRepository := repositories.NewAccountRepository(db)
 	accountService := services.NewAccountService(accountRepository, serverPrivateKey)
 	challengeService := services.NewAuthChallengeService()
@@ -98,10 +145,6 @@ func main() {
 		&serverPrivateKey.PublicKey,
 	)
 
-	totpKey, err := services.DecodeTOTPEncryptionKey(cfg.TOTPEncryptionKey)
-	if err != nil {
-		log.Fatalf("error configurando clave de cifrado TOTP: %v", err)
-	}
 	totpService, err := services.NewTOTPService(userRepository, totpKey)
 	if err != nil {
 		log.Fatalf("error creando servicio TOTP: %v", err)
@@ -109,7 +152,7 @@ func main() {
 	totpHandler := handlers.NewTOTPHandler(totpService)
 
 	// Login y registro
-	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService))
+	api.POST("/login/challenge", handlers.StartLogin(userService, challengeService, loginAuditRepository))
 	api.POST("/login/verify", handlers.VerifyLogin(userService, challengeService, serverPrivateKey, totpService))
 	api.POST("/register", handlers.Register(userService, totpService))
 	api.POST("/totp/generate", totpHandler.Generate)

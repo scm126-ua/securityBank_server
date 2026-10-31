@@ -153,6 +153,7 @@ func (s *transactionService) encryptDescription(plain string) string {
 	}
 	return base64.StdEncoding.EncodeToString(ciphertext)
 }
+
 // decryptDescription descifra el texto de la BD con AES-256-GCM devolviendo el texto plano.
 func (s *transactionService) decryptDescription(cipherText string) string {
 	if cipherText == "" {
@@ -385,7 +386,7 @@ func (s *transactionService) GenerateStatement(
 		return nil, err
 	}
 
-	account, err := s.accountRepo.FindByIBAN(ctx, ownership.IBAN)
+	account, err := s.accountRepo.FindByIBAN(ctx, string(ownership.IBAN))
 	if err != nil {
 		return nil, err
 	}
@@ -423,10 +424,10 @@ func (s *transactionService) GenerateStatement(
 		Version:           accountStatementVersion,
 		StatementID:       base64.RawURLEncoding.EncodeToString(statementIDBytes),
 		AccountID:         accountID,
-		IBAN:              account.IBAN,
+		IBAN:              string(account.IBAN),
 		HolderID:          ownership.HolderID,
 		HolderName:        ownership.HolderName,
-		HolderDNI:         ownership.HolderDNI,
+		HolderDNI:         string(ownership.HolderDNI),
 		CurrentBalance:    account.Balance.String(),
 		TotalDeposits:     totalDeposits.String(),
 		TotalWithdrawals:  totalWithdrawals.String(),

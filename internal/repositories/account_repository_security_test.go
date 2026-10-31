@@ -93,7 +93,7 @@ func createSecurityTestUser(
 
 	user := &models.User{
 		Name:         prefix + " security test",
-		DNI:          prefix[:1] + suffix,
+		DNI:          models.EncryptedString(prefix[:1] + suffix),
 		Email:        prefix + "-" + suffix + "@securitybank.test",
 		PasswordHash: "test-password-hash",
 		Salt:         "test-salt",

@@ -152,9 +152,10 @@ func (r *UserRepository) FindByDNI(
 	dni string,
 ) (*models.User, error) {
 	var user models.User
+	hash := models.HashBlindIndex(models.GetDataEncryptionKey(), dni)
 
 	err := r.db.WithContext(ctx).
-		Where("dni = ?", dni).
+		Where("dni_hash = ?", hash).
 		First(&user).Error
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
